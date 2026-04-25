@@ -58,7 +58,7 @@ func Command(sig string, handler any) {
 }
 
 func Run() {
-	if len(os.Args) <= 1 {
+	if len(os.Args) <= 1 && app.commands[""].handlerType == nil {
 		printUsageAndExit()
 	}
 
@@ -71,13 +71,22 @@ func Run() {
 
 func RunWith(args []string) error {
 	if len(args) <= 1 {
+		if cmd, found := app.commands[""]; found {
+			return cmd.invoke(nil)
+		}
+
 		return errors.New("no command provided")
 	}
 
 	commandName := args[1]
 	cmd, found := app.commands[commandName]
 	if !found {
-		return fmt.Errorf("unknown command %q", commandName)
+		root, hasRoot := app.commands[""]
+		if !hasRoot {
+			return fmt.Errorf("unknown command %q", commandName)
+		}
+
+		return root.invoke(args[1:])
 	}
 
 	return cmd.invoke(args[2:])

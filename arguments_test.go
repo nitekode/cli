@@ -31,6 +31,23 @@ func TestParseSignatureValid(t *testing.T) {
 	if sig.Args[2] != (argument{Name: "arg3"}) {
 		t.Fatalf("Args[2] = %#v", sig.Args[2])
 	}
+
+	rootSig, err := parseSignature("{path} {suffix=txt}")
+	if err != nil {
+		t.Fatalf("parseSignature returned error for root signature: %v", err)
+	}
+
+	if rootSig.Command != "" {
+		t.Fatalf("root Command = %q, want empty", rootSig.Command)
+	}
+
+	if len(rootSig.Args) != 2 {
+		t.Fatalf("len(rootSig.Args) = %d, want 2", len(rootSig.Args))
+	}
+
+	if rootSig.Args[0] != (argument{Name: "path"}) {
+		t.Fatalf("root Args[0] = %#v", rootSig.Args[0])
+	}
 }
 
 func TestParseSignatureInvalid(t *testing.T) {

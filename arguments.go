@@ -23,16 +23,21 @@ func parseSignature(sig string) (signature, error) {
 		return signature{}, fmt.Errorf("signature cannot be empty")
 	}
 
+	argTokens := tokens
 	parsed := signature{
-		Command: tokens[0],
-		Args:    make([]argument, 0, len(tokens)-1),
+		Args: make([]argument, 0, len(tokens)),
 	}
 
-	if err := validateCommandName(parsed.Command); err != nil {
-		return signature{}, err
+	if !strings.HasPrefix(tokens[0], "{") {
+		parsed.Command = tokens[0]
+		argTokens = tokens[1:]
+
+		if err := validateCommandName(parsed.Command); err != nil {
+			return signature{}, err
+		}
 	}
 
-	for _, token := range tokens[1:] {
+	for _, token := range argTokens {
 		arg, err := parseArgument(token)
 		if err != nil {
 			return signature{}, err
