@@ -1,17 +1,12 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 )
-
-type CommandHandler func() error
-
-type command struct {
-	handler CommandHandler
-}
 
 var app = struct {
 	version string
@@ -53,34 +48,42 @@ func In() io.Reader  { return app.in }
 func Out() io.Writer { return app.out }
 func Err() io.Writer { return app.err }
 
-func Command(name string, handler CommandHandler) {
-	app.commands[name] = command{
-		handler: handler,
+func Command(sig string, handler any) {
+	cmd, err := newCommand(sig, handler)
+	if err != nil {
+		panic("cli: " + err.Error())
 	}
+
+	app.commands[cmd.name] = cmd
 }
 
 func Run() {
-	executable := filepath.Base(os.Args[0])
-
-	if len(os.Args) == 1 {
-		// No command has been given so print usage
+	if len(os.Args) <= 1 {
 		printUsageAndExit()
 	}
 
-	// Check that the command is available
-	cmd, found := app.commands[os.Args[1]]
-	if !found {
-		fmt.Printf("%s %s: unknown command\n", executable, os.Args[1])
-		os.Exit(1)
-	}
-
-	// Run command
-	if err := cmd.handler(); err != nil {
+	if err := RunWith(os.Args); err != nil {
+		executable := filepath.Base(os.Args[0])
+		fmt.Fprintf(app.err, "%s: %v\n", executable, err)
 		os.Exit(2)
 	}
 }
 
+func RunWith(args []string) error {
+	if len(args) <= 1 {
+		return errors.New("no command provided")
+	}
+
+	commandName := args[1]
+	cmd, found := app.commands[commandName]
+	if !found {
+		return fmt.Errorf("unknown command %q", commandName)
+	}
+
+	return cmd.invoke(args[2:])
+}
+
 func printUsageAndExit() {
-	fmt.Println("this is how you use it")
+	fmt.Fprintln(app.out, "this is how you use it")
 	os.Exit(0)
 }
