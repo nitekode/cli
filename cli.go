@@ -40,13 +40,35 @@ func Build(version string, commit string, builtAt string) {
 	app.builtAt = builtAt
 }
 
-func SetIn(in io.Reader)   { app.in = in }
-func SetOut(out io.Writer) { app.out = out }
-func SetErr(err io.Writer) { app.err = err }
+func SetIn(in io.Reader) io.Reader {
+	previous := app.in
+	app.in = in
+	return previous
+}
 
-func In() io.Reader  { return app.in }
-func Out() io.Writer { return app.out }
-func Err() io.Writer { return app.err }
+func SetOut(out io.Writer) io.Writer {
+	previous := app.out
+	app.out = out
+	return previous
+}
+
+func SetErr(err io.Writer) io.Writer {
+	previous := app.err
+	app.err = err
+	return previous
+}
+
+func In() io.Reader {
+	return app.in
+}
+
+func Out() io.Writer {
+	return app.out
+}
+
+func Err() io.Writer {
+	return app.err
+}
 
 func Command(sig string, handler any) {
 	cmd, err := newCommand(sig, handler)
