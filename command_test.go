@@ -189,3 +189,21 @@ func TestInvokeCommand(t *testing.T) {
 		}
 	})
 }
+
+func TestCommandUsage(t *testing.T) {
+	cmd := command{
+		name: "greet",
+		arguments: []commandArgument{
+			{Name: "name", Kind: requiredArgument},
+			{Name: "title", Kind: defaultArgument, Default: "friend"},
+			{Name: "suffix", Kind: optionalArgument},
+			{Name: "others", Kind: repeatedArgument},
+		},
+	}
+
+	got := cmd.usage("myapp")
+	want := "myapp greet <name> [title] [suffix] [others...]"
+	if got != want {
+		t.Fatalf("usage = %q, want %q", got, want)
+	}
+}

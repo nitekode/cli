@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 )
@@ -100,5 +101,73 @@ func TestRunWithPrefersSubcommandOverRoot(t *testing.T) {
 
 	if called != "sub:alice" {
 		t.Fatalf("called = %q, want %q", called, "sub:alice")
+	}
+}
+
+func TestGlobalHelp(t *testing.T) {
+	originalName := app.name
+	originalDescription := app.description
+	originalVersion := app.version
+	originalCommands := app.commands
+
+	app.name = "myapp"
+	app.description = "Example app"
+	app.version = "1.2.3"
+	app.commands = make(map[string]command)
+	defer func() {
+		app.name = originalName
+		app.description = originalDescription
+		app.version = originalVersion
+		app.commands = originalCommands
+	}()
+
+	Command("{file}", func(file *string) error { return nil })
+	Command("greet {name}", func(name string) error { return nil })
+	Command("version", func() error { return nil })
+
+	got := globalHelp("myapp")
+
+	for _, want := range []string{
+		"myapp 1.2.3",
+		"Example app",
+		"Usage:",
+		"  myapp [arguments]",
+		"  myapp {command} [arguments]",
+		"Commands:",
+		"  greet",
+		"  version",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("globalHelp missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestPrintUsageAndExitWritesGlobalHelp(t *testing.T) {
+	originalOut := app.out
+	originalCommands := app.commands
+	originalName := app.name
+	originalDescription := app.description
+	originalVersion := app.version
+
+	var out bytes.Buffer
+	app.out = &out
+	app.commands = make(map[string]command)
+	app.name = "myapp"
+	app.description = "Example app"
+	app.version = "1.2.3"
+	defer func() {
+		app.out = originalOut
+		app.commands = originalCommands
+		app.name = originalName
+		app.description = originalDescription
+		app.version = originalVersion
+	}()
+
+	Command("greet {name}", func(name string) error { return nil })
+
+	got := globalHelp("myapp")
+	if !strings.Contains(got, "  myapp {command} [arguments]") {
+		t.Fatalf("globalHelp = %q", got)
 	}
 }

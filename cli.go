@@ -6,9 +6,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 )
 
 var app = struct {
+	name        string
+	description string
+
 	version string
 	commit  string
 	builtAt string
@@ -19,6 +24,8 @@ var app = struct {
 
 	commands map[string]command
 }{
+	name: filepath.Base(os.Args[0]),
+
 	version: "dev",
 	commit:  "unknown",
 	builtAt: "unknown",
@@ -28,6 +35,14 @@ var app = struct {
 	err: os.Stderr,
 
 	commands: make(map[string]command),
+}
+
+func Name(name string) {
+	app.name = name
+}
+
+func Description(description string) {
+	app.description = description
 }
 
 func Version(version string) {
@@ -115,6 +130,72 @@ func RunWith(args []string) error {
 }
 
 func printUsageAndExit() {
-	fmt.Fprintln(app.out, "this is how you use it")
+	fmt.Fprint(app.out, globalHelp(filepath.Base(os.Args[0])))
 	os.Exit(0)
+}
+
+func globalHelp(executable string) string {
+	var b strings.Builder
+
+	writeAppHeader(&b)
+	b.WriteString("Usage:\n")
+
+	if _, hasRoot := app.commands[""]; hasRoot {
+		fmt.Fprintf(&b, "  %s [arguments]\n", executable)
+	}
+
+	if hasNamedCommands() {
+		fmt.Fprintf(&b, "  %s {command} [arguments]\n", executable)
+	}
+
+	if names := commandNames(); len(names) > 0 {
+		b.WriteString("\nCommands:\n")
+		for _, name := range names {
+			fmt.Fprintf(&b, "  %s\n", name)
+		}
+	}
+
+	return b.String()
+}
+
+func writeAppHeader(b *strings.Builder) {
+	if app.name != "" {
+		b.WriteString(app.name)
+		if app.version != "" {
+			b.WriteString(" ")
+			b.WriteString(app.version)
+		}
+		b.WriteString("\n")
+	}
+
+	if app.description != "" {
+		b.WriteString(app.description)
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+}
+
+func hasNamedCommands() bool {
+	for name := range app.commands {
+		if name != "" {
+			return true
+		}
+	}
+
+	return false
+}
+
+func commandNames() []string {
+	names := make([]string, 0, len(app.commands))
+	for name := range app.commands {
+		if name == "" {
+			continue
+		}
+
+		names = append(names, name)
+	}
+
+	slices.Sort(names)
+	return names
 }

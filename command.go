@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 )
 
 type argumentKind uint8
@@ -192,5 +193,33 @@ func bindSingleArgument(arg commandArgument, paramType reflect.Type, providedArg
 		return reflect.Zero(paramType), start, nil
 	default:
 		return reflect.Value{}, start, fmt.Errorf("missing required argument %q", arg.Name)
+	}
+}
+
+func (cmd command) usage(executable string) string {
+	parts := make([]string, 0, len(cmd.arguments)+2)
+	parts = append(parts, executable)
+
+	if cmd.name != "" {
+		parts = append(parts, cmd.name)
+	}
+
+	for _, arg := range cmd.arguments {
+		parts = append(parts, formatUsageArgument(arg))
+	}
+
+	return strings.Join(parts, " ")
+}
+
+func formatUsageArgument(arg commandArgument) string {
+	switch arg.Kind {
+	case requiredArgument:
+		return "<" + arg.Name + ">"
+	case optionalArgument, defaultArgument:
+		return "[" + arg.Name + "]"
+	case repeatedArgument:
+		return "[" + arg.Name + "...]"
+	default:
+		return arg.Name
 	}
 }
