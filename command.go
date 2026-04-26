@@ -223,3 +223,11 @@ func formatUsageArgument(arg commandArgument) string {
 		return arg.Name
 	}
 }
+
+func commandLeafName(name string) string {
+	if i := strings.LastIndexByte(name, ' '); i >= 0 {
+		return name[i+1:]
+	}
+
+	return name
+}

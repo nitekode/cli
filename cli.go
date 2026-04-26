@@ -7,8 +7,17 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 )
+
+type usageError struct {
+	body string
+}
+
+func (e usageError) Error() string {
+	return e.body
+}
 
 var app = struct {
 	name        string
@@ -23,6 +32,7 @@ var app = struct {
 	err io.Writer
 
 	commands map[string]command
+	groups   map[string]*group
 }{
 	name: filepath.Base(os.Args[0]),
 
@@ -35,6 +45,11 @@ var app = struct {
 	err: os.Stderr,
 
 	commands: make(map[string]command),
+	groups:   make(map[string]*group),
+}
+
+type GroupAdder interface {
+	Command(sig string, handler any)
 }
 
 func Name(name string) {
@@ -91,7 +106,30 @@ func Command(sig string, handler any) {
 		panic("cli: " + err.Error())
 	}
 
+	if _, exists := app.groups[cmd.name]; cmd.name != "" && exists {
+		panic("cli: command name conflicts with existing group " + strconv.Quote(cmd.name))
+	}
+
 	app.commands[cmd.name] = cmd
+}
+
+func Group(name string, register func(GroupAdder)) {
+	if err := validateGroupName(name); err != nil {
+		panic("cli: " + err.Error())
+	}
+	if _, exists := app.commands[name]; exists {
+		panic("cli: group name conflicts with existing command " + strconv.Quote(name))
+	}
+	if _, exists := app.groups[name]; exists {
+		panic("cli: duplicate group " + strconv.Quote(name))
+	}
+
+	g := &group{
+		name:     name,
+		commands: make(map[string]command),
+	}
+	app.groups[name] = g
+	register(groupAdder{group: g})
 }
 
 func Run() {
@@ -101,6 +139,12 @@ func Run() {
 
 	if err := RunWith(os.Args); err != nil {
 		executable := filepath.Base(os.Args[0])
+		var usage usageError
+		if errors.As(err, &usage) {
+			fmt.Fprint(app.err, usage.body)
+			os.Exit(2)
+		}
+
 		fmt.Fprintf(app.err, "%s: %v\n", executable, err)
 		os.Exit(2)
 	}
@@ -117,16 +161,30 @@ func RunWith(args []string) error {
 
 	commandName := args[1]
 	cmd, found := app.commands[commandName]
-	if !found {
-		root, hasRoot := app.commands[""]
-		if !hasRoot {
-			return fmt.Errorf("unknown command %q", commandName)
-		}
-
-		return root.invoke(args[1:])
+	if found {
+		return cmd.invoke(args[2:])
 	}
 
-	return cmd.invoke(args[2:])
+	if group, found := app.groups[commandName]; found {
+		if len(args) <= 2 {
+			return usageError{body: groupHelp(filepath.Base(args[0]), group)}
+		}
+
+		groupCommandName := args[2]
+		groupCommand, found := group.commands[groupCommandName]
+		if !found {
+			return usageError{body: groupHelp(filepath.Base(args[0]), group)}
+		}
+
+		return groupCommand.invoke(args[3:])
+	}
+
+	root, hasRoot := app.commands[""]
+	if !hasRoot {
+		return fmt.Errorf("unknown command %q", commandName)
+	}
+
+	return root.invoke(args[1:])
 }
 
 func printUsageAndExit() {
@@ -148,10 +206,33 @@ func globalHelp(executable string) string {
 		fmt.Fprintf(&b, "  %s {command} [arguments]\n", executable)
 	}
 
-	if names := commandNames(); len(names) > 0 {
+	if hasNamedCommands() || len(app.groups) > 0 {
 		b.WriteString("\nCommands:\n")
-		for _, name := range names {
+		for _, name := range commandNames() {
 			fmt.Fprintf(&b, "  %s\n", name)
+		}
+		for _, groupName := range groupNames() {
+			fmt.Fprintf(&b, "  %s\n", groupName)
+			for _, commandName := range groupCommandNames(groupName) {
+				fmt.Fprintf(&b, "    %s %s\n", groupName, commandName)
+			}
+		}
+	}
+
+	return b.String()
+}
+
+func groupHelp(executable string, group *group) string {
+	var b strings.Builder
+
+	writeAppHeader(&b)
+	b.WriteString("Usage:\n")
+	fmt.Fprintf(&b, "  %s {command} [arguments]\n", executable)
+
+	if len(group.commands) > 0 {
+		fmt.Fprintf(&b, "\nCommands in the %q group:\n", group.name)
+		for _, commandName := range groupCommandNames(group.name) {
+			fmt.Fprintf(&b, "  %s %s\n", group.name, commandName)
 		}
 	}
 
@@ -193,6 +274,31 @@ func commandNames() []string {
 			continue
 		}
 
+		names = append(names, name)
+	}
+
+	slices.Sort(names)
+	return names
+}
+
+func groupNames() []string {
+	names := make([]string, 0, len(app.groups))
+	for name := range app.groups {
+		names = append(names, name)
+	}
+
+	slices.Sort(names)
+	return names
+}
+
+func groupCommandNames(groupName string) []string {
+	group, found := app.groups[groupName]
+	if !found {
+		return nil
+	}
+
+	names := make([]string, 0, len(group.commands))
+	for name := range group.commands {
 		names = append(names, name)
 	}
 

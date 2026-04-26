@@ -101,8 +101,16 @@ func validateCommandName(name string) error {
 	if name == "" {
 		return fmt.Errorf("command name cannot be empty")
 	}
-	if strings.ContainsAny(name, "{}") {
+	if strings.ContainsAny(name, "{}") || strings.ContainsFunc(name, unicode.IsSpace) {
 		return fmt.Errorf("invalid command name %q", name)
+	}
+
+	return nil
+}
+
+func validateGroupName(name string) error {
+	if err := validateCommandName(name); err != nil {
+		return fmt.Errorf("invalid group name: %w", err)
 	}
 
 	return nil
