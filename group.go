@@ -3,14 +3,15 @@ package cli
 type group struct {
 	name     string
 	commands map[string]command
+	hidden   bool
 }
 
 type groupAdder struct {
 	group *group
 }
 
-func (g groupAdder) Command(sig string, handler any) {
-	cmd, err := newCommand(sig, handler)
+func (g groupAdder) Command(sig string, handler any, opts ...CommandOption) {
+	cmd, err := newCommand(sig, handler, opts...)
 	if err != nil {
 		panic("cli: " + err.Error())
 	}

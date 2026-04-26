@@ -27,12 +27,13 @@ type command struct {
 	arguments   []commandArgument
 	handlerType reflect.Type
 	handler     reflect.Value
+	hidden      bool
 }
 
 var errorType = reflect.TypeFor[error]()
 var stringType = reflect.TypeFor[string]()
 
-func newCommand(sig string, handler any) (command, error) {
+func newCommand(sig string, handler any, opts ...CommandOption) (command, error) {
 	parsedSig, err := parseSignature(sig)
 	if err != nil {
 		return command{}, err
@@ -49,12 +50,18 @@ func newCommand(sig string, handler any) (command, error) {
 		return command{}, err
 	}
 
-	return command{
+	cmd := command{
 		name:        parsedSig.Command,
 		arguments:   arguments,
 		handlerType: handlerType,
 		handler:     handlerValue,
-	}, nil
+	}
+
+	for _, opt := range opts {
+		opt.applyCommand(&cmd)
+	}
+
+	return cmd, nil
 }
 
 func compileCommandArguments(sig signature, handlerType reflect.Type) ([]commandArgument, error) {

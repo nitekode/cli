@@ -49,7 +49,7 @@ var app = struct {
 }
 
 type GroupAdder interface {
-	Command(sig string, handler any)
+	Command(sig string, handler any, opts ...CommandOption)
 }
 
 func Name(name string) {
@@ -100,8 +100,8 @@ func Err() io.Writer {
 	return app.err
 }
 
-func Command(sig string, handler any) {
-	cmd, err := newCommand(sig, handler)
+func Command(sig string, handler any, opts ...CommandOption) {
+	cmd, err := newCommand(sig, handler, opts...)
 	if err != nil {
 		panic("cli: " + err.Error())
 	}
@@ -113,7 +113,7 @@ func Command(sig string, handler any) {
 	app.commands[cmd.name] = cmd
 }
 
-func Group(name string, register func(GroupAdder)) {
+func Group(name string, register func(GroupAdder), opts ...GroupOption) {
 	if err := validateGroupName(name); err != nil {
 		panic("cli: " + err.Error())
 	}
@@ -127,6 +127,9 @@ func Group(name string, register func(GroupAdder)) {
 	g := &group{
 		name:     name,
 		commands: make(map[string]command),
+	}
+	for _, opt := range opts {
+		opt.applyGroup(g)
 	}
 	app.groups[name] = g
 	register(groupAdder{group: g})
@@ -258,8 +261,8 @@ func writeAppHeader(b *strings.Builder) {
 }
 
 func hasNamedCommands() bool {
-	for name := range app.commands {
-		if name != "" {
+	for name, cmd := range app.commands {
+		if name != "" && !cmd.hidden {
 			return true
 		}
 	}
@@ -270,7 +273,7 @@ func hasNamedCommands() bool {
 func commandNames() []string {
 	names := make([]string, 0, len(app.commands))
 	for name := range app.commands {
-		if name == "" {
+		if name == "" || app.commands[name].hidden {
 			continue
 		}
 
@@ -284,6 +287,9 @@ func commandNames() []string {
 func groupNames() []string {
 	names := make([]string, 0, len(app.groups))
 	for name := range app.groups {
+		if app.groups[name].hidden {
+			continue
+		}
 		names = append(names, name)
 	}
 
@@ -299,6 +305,9 @@ func groupCommandNames(groupName string) []string {
 
 	names := make([]string, 0, len(group.commands))
 	for name := range group.commands {
+		if group.commands[name].hidden {
+			continue
+		}
 		names = append(names, name)
 	}
 

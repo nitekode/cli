@@ -299,6 +299,35 @@ func TestGlobalHelp(t *testing.T) {
 	}
 }
 
+func TestGlobalHelpOmitsHiddenCommandAndGroup(t *testing.T) {
+	originalCommands := app.commands
+	originalGroups := app.groups
+	app.commands = make(map[string]command)
+	app.groups = make(map[string]*group)
+	defer func() {
+		app.commands = originalCommands
+		app.groups = originalGroups
+	}()
+
+	Command("visible", func() error { return nil })
+	Command("hidden", func() error { return nil }, Hidden())
+	Group("secret", func(g GroupAdder) {
+		g.Command("add", func() error { return nil })
+	}, Hidden())
+
+	got := globalHelp("myapp")
+
+	if strings.Contains(got, "\n  hidden\n") {
+		t.Fatalf("globalHelp should omit hidden command:\n%s", got)
+	}
+	if strings.Contains(got, "\n  secret\n") || strings.Contains(got, "secret add") {
+		t.Fatalf("globalHelp should omit hidden group:\n%s", got)
+	}
+	if !strings.Contains(got, "\n  visible\n") {
+		t.Fatalf("globalHelp should include visible command:\n%s", got)
+	}
+}
+
 func TestPrintUsageAndExitWritesGlobalHelp(t *testing.T) {
 	originalOut := app.out
 	originalCommands := app.commands
