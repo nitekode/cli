@@ -28,6 +28,7 @@ type command struct {
 	handlerType reflect.Type
 	handler     reflect.Value
 	hidden      bool
+	middleware  []MiddlewareFunc
 }
 
 var errorType = reflect.TypeFor[error]()
@@ -128,24 +129,36 @@ func compileCommandArgument(sigArg argument, paramType reflect.Type, variadic bo
 	return arg, nil
 }
 
-func (cmd command) invoke(providedArgs []string) error {
-	inputs, err := bindInputs(cmd.arguments, cmd.handlerType, providedArgs)
-	if err != nil {
-		return err
+func (cmd command) invoke(providedArgs []string, middleware ...MiddlewareFunc) error {
+	next := func() error {
+		inputs, err := bindInputs(cmd.arguments, cmd.handlerType, providedArgs)
+		if err != nil {
+			return err
+		}
+
+		var results []reflect.Value
+		if cmd.handlerType.IsVariadic() {
+			results = cmd.handler.CallSlice(inputs)
+		} else {
+			results = cmd.handler.Call(inputs)
+		}
+
+		if !results[0].IsNil() {
+			return results[0].Interface().(error)
+		}
+
+		return nil
 	}
 
-	var results []reflect.Value
-	if cmd.handlerType.IsVariadic() {
-		results = cmd.handler.CallSlice(inputs)
-	} else {
-		results = cmd.handler.Call(inputs)
+	for i := len(middleware) - 1; i >= 0; i-- {
+		currentMiddleware := middleware[i]
+		current := next
+		next = func() error {
+			return currentMiddleware(current)
+		}
 	}
 
-	if !results[0].IsNil() {
-		return results[0].Interface().(error)
-	}
-
-	return nil
+	return next()
 }
 
 func bindInputs(args []commandArgument, handlerType reflect.Type, providedArgs []string) ([]reflect.Value, error) {

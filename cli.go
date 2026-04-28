@@ -31,8 +31,9 @@ var app = struct {
 	out io.Writer
 	err io.Writer
 
-	commands map[string]command
-	groups   map[string]*group
+	commands    map[string]command
+	groups      map[string]*group
+	middleware  []MiddlewareFunc
 }{
 	name: filepath.Base(os.Args[0]),
 
@@ -156,7 +157,7 @@ func Run() {
 func RunWith(args []string) error {
 	if len(args) <= 1 {
 		if cmd, found := app.commands[""]; found {
-			return cmd.invoke(nil)
+			return cmd.invoke(nil, append([]MiddlewareFunc(nil), app.middleware...)...)
 		}
 
 		return errors.New("no command provided")
@@ -165,7 +166,7 @@ func RunWith(args []string) error {
 	commandName := args[1]
 	cmd, found := app.commands[commandName]
 	if found {
-		return cmd.invoke(args[2:])
+		return cmd.invoke(args[2:], append(append([]MiddlewareFunc(nil), app.middleware...), cmd.middleware...)...)
 	}
 
 	if group, found := app.groups[commandName]; found {
@@ -179,7 +180,10 @@ func RunWith(args []string) error {
 			return usageError{body: groupHelp(filepath.Base(args[0]), group)}
 		}
 
-		return groupCommand.invoke(args[3:])
+		middleware := append([]MiddlewareFunc(nil), app.middleware...)
+		middleware = append(middleware, group.middleware...)
+		middleware = append(middleware, groupCommand.middleware...)
+		return groupCommand.invoke(args[3:], middleware...)
 	}
 
 	root, hasRoot := app.commands[""]
@@ -187,7 +191,7 @@ func RunWith(args []string) error {
 		return fmt.Errorf("unknown command %q", commandName)
 	}
 
-	return root.invoke(args[1:])
+	return root.invoke(args[1:], append(append([]MiddlewareFunc(nil), app.middleware...), root.middleware...)...)
 }
 
 func printUsageAndExit() {

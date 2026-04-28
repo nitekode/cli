@@ -4,6 +4,7 @@ type group struct {
 	name     string
 	commands map[string]command
 	hidden   bool
+	middleware []MiddlewareFunc
 }
 
 type groupAdder struct {
