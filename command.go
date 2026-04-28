@@ -231,6 +231,15 @@ func (cmd command) usage(executable string) string {
 	return strings.Join(parts, " ")
 }
 
+func (cmd command) argumentNames() []string {
+	names := make([]string, 0, len(cmd.arguments))
+	for _, arg := range cmd.arguments {
+		names = append(names, arg.Name)
+	}
+
+	return names
+}
+
 func formatUsageArgument(arg commandArgument) string {
 	switch arg.Kind {
 	case requiredArgument:

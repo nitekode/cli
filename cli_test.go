@@ -280,6 +280,9 @@ func TestRunWithHelpForCommand(t *testing.T) {
 	if !strings.Contains(out.String(), "  myapp greet <name>\n") {
 		t.Fatalf("help output = %q", out.String())
 	}
+	if !strings.Contains(out.String(), "\nArguments:\n  name\n") {
+		t.Fatalf("help output = %q", out.String())
+	}
 }
 
 func TestRunWithHelpForGroupedCommand(t *testing.T) {
@@ -306,6 +309,15 @@ func TestRunWithHelpForGroupedCommand(t *testing.T) {
 
 	if !strings.Contains(out.String(), "  myapp calc add <a> <b>\n") {
 		t.Fatalf("help output = %q", out.String())
+	}
+	for _, want := range []string{
+		"\nArguments:\n",
+		"  a\n",
+		"  b\n",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("help output missing %q in:\n%s", want, out.String())
+		}
 	}
 }
 

@@ -246,6 +246,13 @@ func commandHelp(executable string, cmd command) string {
 	b.WriteString("Usage:\n")
 	fmt.Fprintf(&b, "  %s\n", cmd.usage(executable))
 
+	if names := cmd.argumentNames(); len(names) > 0 {
+		b.WriteString("\nArguments:\n")
+		for _, name := range names {
+			fmt.Fprintf(&b, "  %s\n", name)
+		}
+	}
+
 	return b.String()
 }
 
