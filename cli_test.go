@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -10,11 +11,23 @@ import (
 func TestRunWith(t *testing.T) {
 	originalCommands := app.commands
 	originalGroups := app.groups
+	originalName := app.name
+	originalVersion := app.version
+	originalCommit := app.commit
+	originalBuiltAt := app.builtAt
 	app.commands = make(map[string]command)
 	app.groups = make(map[string]*group)
+	app.name = "myapp"
+	app.version = "1.2.3"
+	app.commit = "unknown"
+	app.builtAt = "unknown"
 	defer func() {
 		app.commands = originalCommands
 		app.groups = originalGroups
+		app.name = originalName
+		app.version = originalVersion
+		app.commit = originalCommit
+		app.builtAt = originalBuiltAt
 	}()
 
 	Command("greet {name} {title=friend} {suffix} {others}", func(name string, title string, suffix *string, others ...string) error {
@@ -31,6 +44,17 @@ func TestRunWith(t *testing.T) {
 
 	if err := RunWith([]string{"test", "greet", "alice"}); err != nil {
 		t.Fatalf("RunWith returned error: %v", err)
+	}
+
+	var out bytes.Buffer
+	prevOut := app.out
+	app.out = &out
+	if err := RunWith([]string{"test", "version"}); err != nil {
+		t.Fatalf("RunWith version returned error: %v", err)
+	}
+	app.out = prevOut
+	if out.String() != "1.2.3\n" {
+		t.Fatalf("version output = %q, want %q", out.String(), "1.2.3\n")
 	}
 
 	app.commands = make(map[string]command)
@@ -296,6 +320,60 @@ func TestGlobalHelp(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("globalHelp missing %q in:\n%s", want, got)
 		}
+	}
+}
+
+func TestExplicitVersionCommandOverridesBuiltIn(t *testing.T) {
+	originalCommands := app.commands
+	originalGroups := app.groups
+	originalOut := app.out
+	app.commands = make(map[string]command)
+	app.groups = make(map[string]*group)
+	var out bytes.Buffer
+	app.out = &out
+	defer func() {
+		app.commands = originalCommands
+		app.groups = originalGroups
+		app.out = originalOut
+	}()
+
+	Command("version", func() error {
+		_, err := fmt.Fprintln(app.out, "custom version")
+		return err
+	})
+
+	if err := RunWith([]string{"test", "version"}); err != nil {
+		t.Fatalf("RunWith returned error: %v", err)
+	}
+
+	if out.String() != "custom version\n" {
+		t.Fatalf("version output = %q, want %q", out.String(), "custom version\n")
+	}
+}
+
+func TestVersionStringIncludesOptionalBuildMetadata(t *testing.T) {
+	originalVersion := app.version
+	originalCommit := app.commit
+	originalBuiltAt := app.builtAt
+	defer func() {
+		app.version = originalVersion
+		app.commit = originalCommit
+		app.builtAt = originalBuiltAt
+	}()
+
+	app.version = "v1.2.3"
+	app.builtAt = "2024-06-24 22:11:35"
+	app.commit = "abcd123"
+
+	if got := versionString(); got != "v1.2.3 (2024-06-24 22:11:35) [abcd123]" {
+		t.Fatalf("versionString = %q", got)
+	}
+
+	app.builtAt = "unknown"
+	app.commit = "unknown"
+
+	if got := versionString(); got != "v1.2.3" {
+		t.Fatalf("versionString = %q", got)
 	}
 }
 

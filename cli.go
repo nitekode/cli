@@ -118,6 +118,9 @@ func Group(name string, register func(GroupAdder), opts ...GroupOption) {
 	if err := validateGroupName(name); err != nil {
 		panic("cli: " + err.Error())
 	}
+	if name == "version" {
+		panic(`cli: group name conflicts with built-in command "version"`)
+	}
 	if _, exists := app.commands[name]; exists {
 		panic("cli: group name conflicts with existing command " + strconv.Quote(name))
 	}
@@ -167,6 +170,10 @@ func RunWith(args []string) error {
 	cmd, found := app.commands[commandName]
 	if found {
 		return cmd.invoke(args[2:], append(append([]MiddlewareFunc(nil), app.middleware...), cmd.middleware...)...)
+	}
+	if commandName == "version" {
+		printVersion()
+		return nil
 	}
 
 	if group, found := app.groups[commandName]; found {
@@ -229,6 +236,30 @@ func globalHelp(executable string) string {
 	return b.String()
 }
 
+func printVersion() {
+	fmt.Fprintln(app.out, versionString())
+}
+
+func versionString() string {
+	var b strings.Builder
+
+	b.WriteString(app.version)
+
+	if app.builtAt != "" && app.builtAt != "unknown" {
+		b.WriteString(" (")
+		b.WriteString(app.builtAt)
+		b.WriteString(")")
+	}
+
+	if app.commit != "" && app.commit != "unknown" {
+		b.WriteString(" [")
+		b.WriteString(app.commit)
+		b.WriteString("]")
+	}
+
+	return b.String()
+}
+
 func groupHelp(executable string, group *group) string {
 	var b strings.Builder
 
@@ -265,6 +296,10 @@ func writeAppHeader(b *strings.Builder) {
 }
 
 func hasNamedCommands() bool {
+	if hasAutoVersionCommand() {
+		return true
+	}
+
 	for name, cmd := range app.commands {
 		if name != "" && !cmd.hidden {
 			return true
@@ -276,6 +311,10 @@ func hasNamedCommands() bool {
 
 func commandNames() []string {
 	names := make([]string, 0, len(app.commands))
+	if hasAutoVersionCommand() {
+		names = append(names, "version")
+	}
+
 	for name := range app.commands {
 		if name == "" || app.commands[name].hidden {
 			continue
@@ -286,6 +325,11 @@ func commandNames() []string {
 
 	slices.Sort(names)
 	return names
+}
+
+func hasAutoVersionCommand() bool {
+	_, found := app.commands["version"]
+	return !found
 }
 
 func groupNames() []string {
