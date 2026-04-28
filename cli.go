@@ -209,7 +209,7 @@ func globalHelp(executable string) string {
 		fmt.Fprintf(&b, "  %s [arguments]\n", executable)
 	}
 
-	if hasNamedCommands() {
+	if hasNamedCommands() || len(app.groups) > 0 {
 		fmt.Fprintf(&b, "  %s {command} [arguments]\n", executable)
 	}
 
