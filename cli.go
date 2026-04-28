@@ -118,8 +118,8 @@ func Group(name string, register func(GroupAdder), opts ...GroupOption) {
 	if err := validateGroupName(name); err != nil {
 		panic("cli: " + err.Error())
 	}
-	if name == "version" {
-		panic(`cli: group name conflicts with built-in command "version"`)
+	if isBuiltInCommandName(name) {
+		panic("cli: group name conflicts with built-in command " + strconv.Quote(name))
 	}
 	if _, exists := app.commands[name]; exists {
 		panic("cli: group name conflicts with existing command " + strconv.Quote(name))
@@ -170,6 +170,9 @@ func RunWith(args []string) error {
 	cmd, found := app.commands[commandName]
 	if found {
 		return cmd.invoke(args[2:], append(append([]MiddlewareFunc(nil), app.middleware...), cmd.middleware...)...)
+	}
+	if commandName == "help" {
+		return runHelp(args)
 	}
 	if commandName == "version" {
 		printVersion()
@@ -236,6 +239,16 @@ func globalHelp(executable string) string {
 	return b.String()
 }
 
+func commandHelp(executable string, cmd command) string {
+	var b strings.Builder
+
+	writeAppHeader(&b)
+	b.WriteString("Usage:\n")
+	fmt.Fprintf(&b, "  %s\n", cmd.usage(executable))
+
+	return b.String()
+}
+
 func printVersion() {
 	fmt.Fprintln(app.out, versionString())
 }
@@ -295,8 +308,46 @@ func writeAppHeader(b *strings.Builder) {
 	b.WriteString("\n")
 }
 
+func runHelp(args []string) error {
+	executable := filepath.Base(args[0])
+	switch len(args) {
+	case 2:
+		fmt.Fprint(app.out, globalHelp(executable))
+		return nil
+	case 3:
+		name := args[2]
+		if cmd, found := app.commands[name]; found {
+			fmt.Fprint(app.out, commandHelp(executable, cmd))
+			return nil
+		}
+		if group, found := app.groups[name]; found {
+			fmt.Fprint(app.out, groupHelp(executable, group))
+			return nil
+		}
+		if name == "help" {
+			fmt.Fprintf(app.out, "Usage:\n  %s help [command]\n", executable)
+			return nil
+		}
+		if name == "version" {
+			fmt.Fprintf(app.out, "Usage:\n  %s version\n", executable)
+			return nil
+		}
+	default:
+		groupName := args[2]
+		commandName := args[3]
+		if group, found := app.groups[groupName]; found {
+			if cmd, found := group.commands[commandName]; found {
+				fmt.Fprint(app.out, commandHelp(executable, cmd))
+				return nil
+			}
+		}
+	}
+
+	return fmt.Errorf("unknown help topic %q", strings.Join(args[2:], " "))
+}
+
 func hasNamedCommands() bool {
-	if hasAutoVersionCommand() {
+	if hasAutoBuiltInCommands() {
 		return true
 	}
 
@@ -311,8 +362,13 @@ func hasNamedCommands() bool {
 
 func commandNames() []string {
 	names := make([]string, 0, len(app.commands))
-	if hasAutoVersionCommand() {
-		names = append(names, "version")
+	if hasAutoBuiltInCommands() {
+		if _, found := app.commands["help"]; !found {
+			names = append(names, "help")
+		}
+		if _, found := app.commands["version"]; !found {
+			names = append(names, "version")
+		}
 	}
 
 	for name := range app.commands {
@@ -327,9 +383,17 @@ func commandNames() []string {
 	return names
 }
 
-func hasAutoVersionCommand() bool {
-	_, found := app.commands["version"]
+func hasAutoBuiltInCommands() bool {
+	return hasAutoBuiltInCommand("help") || hasAutoBuiltInCommand("version")
+}
+
+func hasAutoBuiltInCommand(name string) bool {
+	_, found := app.commands[name]
 	return !found
+}
+
+func isBuiltInCommandName(name string) bool {
+	return name == "help" || name == "version"
 }
 
 func groupNames() []string {

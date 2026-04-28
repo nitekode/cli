@@ -56,6 +56,15 @@ func TestRunWith(t *testing.T) {
 	if out.String() != "1.2.3\n" {
 		t.Fatalf("version output = %q, want %q", out.String(), "1.2.3\n")
 	}
+	out.Reset()
+	app.out = &out
+	if err := RunWith([]string{"test", "help"}); err != nil {
+		t.Fatalf("RunWith help returned error: %v", err)
+	}
+	app.out = prevOut
+	if !strings.Contains(out.String(), "Commands:\n") {
+		t.Fatalf("help output = %q", out.String())
+	}
 
 	app.commands = make(map[string]command)
 	app.groups = make(map[string]*group)
@@ -214,6 +223,92 @@ func TestRunWithGroupWithoutCommandReturnsGroupHelp(t *testing.T) {
 	}
 }
 
+func TestRunWithHelpForGroup(t *testing.T) {
+	originalCommands := app.commands
+	originalGroups := app.groups
+	originalOut := app.out
+	app.commands = make(map[string]command)
+	app.groups = make(map[string]*group)
+	var out bytes.Buffer
+	app.out = &out
+	defer func() {
+		app.commands = originalCommands
+		app.groups = originalGroups
+		app.out = originalOut
+	}()
+
+	Group("calc", func(g GroupAdder) {
+		g.Command("add {a} {b}", func(a string, b string) error { return nil })
+	})
+
+	if err := RunWith([]string{"myapp", "help", "calc"}); err != nil {
+		t.Fatalf("RunWith returned error: %v", err)
+	}
+
+	for _, want := range []string{
+		"Usage:",
+		"  myapp {command} [arguments]",
+		`Commands in the "calc" group:`,
+		"  calc add",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("help output missing %q in:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestRunWithHelpForCommand(t *testing.T) {
+	originalCommands := app.commands
+	originalGroups := app.groups
+	originalOut := app.out
+	app.commands = make(map[string]command)
+	app.groups = make(map[string]*group)
+	var out bytes.Buffer
+	app.out = &out
+	defer func() {
+		app.commands = originalCommands
+		app.groups = originalGroups
+		app.out = originalOut
+	}()
+
+	Command("greet {name}", func(name string) error { return nil })
+
+	if err := RunWith([]string{"myapp", "help", "greet"}); err != nil {
+		t.Fatalf("RunWith returned error: %v", err)
+	}
+
+	if !strings.Contains(out.String(), "  myapp greet <name>\n") {
+		t.Fatalf("help output = %q", out.String())
+	}
+}
+
+func TestRunWithHelpForGroupedCommand(t *testing.T) {
+	originalCommands := app.commands
+	originalGroups := app.groups
+	originalOut := app.out
+	app.commands = make(map[string]command)
+	app.groups = make(map[string]*group)
+	var out bytes.Buffer
+	app.out = &out
+	defer func() {
+		app.commands = originalCommands
+		app.groups = originalGroups
+		app.out = originalOut
+	}()
+
+	Group("calc", func(g GroupAdder) {
+		g.Command("add {a} {b}", func(a string, b string) error { return nil })
+	})
+
+	if err := RunWith([]string{"myapp", "help", "calc", "add"}); err != nil {
+		t.Fatalf("RunWith returned error: %v", err)
+	}
+
+	if !strings.Contains(out.String(), "  myapp calc add <a> <b>\n") {
+		t.Fatalf("help output = %q", out.String())
+	}
+}
+
 func TestRunWithUnknownGroupCommandReturnsGroupHelp(t *testing.T) {
 	originalCommands := app.commands
 	originalGroups := app.groups
@@ -311,6 +406,7 @@ func TestGlobalHelp(t *testing.T) {
 		"  myapp {command} [arguments]",
 		"Commands:",
 		"  greet",
+		"  help",
 		"  secret",
 		"    secret add",
 		"    secret edit",
