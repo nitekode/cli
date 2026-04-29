@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	cli.Command("{file}", catHandler)
+	cli.Command("{file}", "Print a file or standard input", catHandler)
 	cli.Run()
 }
 

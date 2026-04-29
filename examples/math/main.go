@@ -11,14 +11,14 @@ func main() {
 	cli.Name("Math")
 	cli.Version("1.0")
 
-	cli.Command("pi", func() error {
+	cli.Command("pi", "Print the value of pi", func() error {
 		fmt.Fprintln(cli.Out(), "3.14159")
 		return nil
 	})
 
-	cli.Group("calc", func(ga cli.GroupAdder) {
-		ga.Command("add {a} {b}", addHandler)
-		ga.Command("sub {a} {b}", subHandler)
+	cli.Group("calc", "Calculator commands", func(ga cli.GroupAdder) {
+		ga.Command("add {a} {b}", "Add two numbers", addHandler)
+		ga.Command("sub {a} {b}", "Subtract two numbers", subHandler)
 	})
 
 	cli.Run()

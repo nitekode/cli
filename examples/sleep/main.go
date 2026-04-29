@@ -15,11 +15,16 @@ import (
 func main() {
 	cli.Name("Sleep")
 	cli.Version("1.0")
+	cli.Description("Demonstrates middleware")
 	cli.Use(uppercaser)
 
-	cli.Group("duration", func(ga cli.GroupAdder) {
-		ga.Command("second {duration=1}", secondCmdHandler)
-		ga.Command("custom", customCmdHandler, cli.Middleware(hasDuration))
+	cli.Group("duration", "Sleep for a period of time", func(ga cli.GroupAdder) {
+		ga.Command("second {duration=1}", "Sleep for a second", secondCmdHandler,
+			cli.ArgDesc("duration", "sleep time in seconds"),
+		)
+		ga.Command("custom", "Sleep for a user defined time", customCmdHandler,
+			cli.Middleware(hasDuration),
+		)
 	}, cli.Middleware(sleepTimer))
 
 	cli.Run()
