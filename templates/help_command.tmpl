@@ -1,0 +1,9 @@
+{{if .Description}}{{.Description}}
+
+{{end}}Usage:
+  {{.Usage}}
+{{if .Arguments}}
+Arguments:
+{{range .Arguments}}{{if .Description}}  {{.Name}}  {{.Description}}{{if .Default}} (default={{.Default}}){{end}}
+{{else}}  {{.Name}}{{if .Default}} (default={{.Default}}){{end}}
+{{end}}{{end}}{{end}}

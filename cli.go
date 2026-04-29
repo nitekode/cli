@@ -6,18 +6,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 )
-
-type usageError struct {
-	body string
-}
-
-func (e usageError) Error() string {
-	return e.body
-}
 
 var app = struct {
 	name        string
@@ -208,71 +199,6 @@ func RunWith(args []string) error {
 	return root.invoke(args[1:], append(append([]MiddlewareFunc(nil), app.middleware...), root.middleware...)...)
 }
 
-func printUsageAndExit() {
-	fmt.Fprint(app.out, globalHelp(filepath.Base(os.Args[0])))
-	os.Exit(0)
-}
-
-func globalHelp(executable string) string {
-	var b strings.Builder
-
-	writeHelpHeader(&b)
-	b.WriteString("Usage:\n")
-
-	if _, hasRoot := app.commands[""]; hasRoot {
-		fmt.Fprintf(&b, "  %s [arguments]\n", executable)
-	}
-
-	if hasNamedCommands() || len(app.groups) > 0 {
-		fmt.Fprintf(&b, "  %s {command} [arguments]\n", executable)
-	}
-
-	if hasNamedCommands() || len(app.groups) > 0 {
-		b.WriteString("\nCommands:\n")
-		column := globalCommandDescriptionColumn()
-		writeCommandSummaries(&b, "  ", commandNames(), commandDescription, column)
-		for _, groupName := range groupNames() {
-			writeGroupSummary(&b, groupName, column)
-			groupCommands := groupCommandNames(groupName)
-			writeCommandSummaries(&b, "    ", groupCommands, func(commandName string) string {
-				return groupCommandDescription(groupName, commandName)
-			}, func(commandName string) string {
-				return groupName + " " + commandName
-			}, column)
-		}
-	}
-
-	return b.String()
-}
-
-func commandHelp(executable string, cmd command) string {
-	var b strings.Builder
-
-	if cmd.description != "" {
-		b.WriteString(cmd.description)
-		b.WriteString("\n\n")
-	}
-	b.WriteString("Usage:\n")
-	fmt.Fprintf(&b, "  %s\n", cmd.usage(executable))
-
-	if len(cmd.arguments) > 0 {
-		b.WriteString("\nArguments:\n")
-		for _, arg := range cmd.arguments {
-			suffix := ""
-			if arg.Kind == defaultArgument {
-				suffix = fmt.Sprintf(" (default=%s)", arg.Default)
-			}
-			if arg.Description == "" {
-				fmt.Fprintf(&b, "  %s%s\n", arg.Name, suffix)
-				continue
-			}
-			fmt.Fprintf(&b, "  %s  %s%s\n", arg.Name, arg.Description, suffix)
-		}
-	}
-
-	return b.String()
-}
-
 func printVersion() {
 	fmt.Fprintln(app.out, versionString())
 }
@@ -297,73 +223,6 @@ func versionString() string {
 	return b.String()
 }
 
-func groupHelp(executable string, group *group) string {
-	var b strings.Builder
-
-	if group.description != "" {
-		b.WriteString(group.description)
-		b.WriteString("\n\n")
-	}
-	b.WriteString("Usage:\n")
-	fmt.Fprintf(&b, "  %s %s {command} [arguments]\n", executable, group.name)
-
-	if len(group.commands) > 0 {
-		b.WriteString("\nCommands:\n")
-		writeCommandSummaries(&b, "  ", groupCommandNames(group.name), func(commandName string) string {
-			return groupCommandDescription(group.name, commandName)
-		})
-	}
-
-	return b.String()
-}
-
-func writeHelpHeader(b *strings.Builder) {
-	if app.description != "" {
-		b.WriteString(app.description)
-		b.WriteString("\n")
-	}
-
-	b.WriteString("\n")
-}
-
-func runHelp(args []string) error {
-	executable := filepath.Base(args[0])
-	switch len(args) {
-	case 2:
-		fmt.Fprint(app.out, globalHelp(executable))
-		return nil
-	case 3:
-		name := args[2]
-		if cmd, found := app.commands[name]; found {
-			fmt.Fprint(app.out, commandHelp(executable, cmd))
-			return nil
-		}
-		if group, found := app.groups[name]; found {
-			fmt.Fprint(app.out, groupHelp(executable, group))
-			return nil
-		}
-		if name == "help" {
-			fmt.Fprintf(app.out, "Usage:\n  %s help [command]\n", executable)
-			return nil
-		}
-		if name == "version" {
-			fmt.Fprintf(app.out, "Usage:\n  %s version\n", executable)
-			return nil
-		}
-	default:
-		groupName := args[2]
-		commandName := args[3]
-		if group, found := app.groups[groupName]; found {
-			if cmd, found := group.commands[commandName]; found {
-				fmt.Fprint(app.out, commandHelp(executable, cmd))
-				return nil
-			}
-		}
-	}
-
-	return fmt.Errorf("unknown help topic %q", strings.Join(args[2:], " "))
-}
-
 func hasNamedCommands() bool {
 	if hasAutoBuiltInCommands() {
 		return true
@@ -378,29 +237,6 @@ func hasNamedCommands() bool {
 	return false
 }
 
-func commandNames() []string {
-	names := make([]string, 0, len(app.commands))
-	if hasAutoBuiltInCommands() {
-		if _, found := app.commands["help"]; !found {
-			names = append(names, "help")
-		}
-		if _, found := app.commands["version"]; !found {
-			names = append(names, "version")
-		}
-	}
-
-	for name := range app.commands {
-		if name == "" || app.commands[name].hidden {
-			continue
-		}
-
-		names = append(names, name)
-	}
-
-	slices.Sort(names)
-	return names
-}
-
 func hasAutoBuiltInCommands() bool {
 	return hasAutoBuiltInCommand("help") || hasAutoBuiltInCommand("version")
 }
@@ -412,158 +248,4 @@ func hasAutoBuiltInCommand(name string) bool {
 
 func isBuiltInCommandName(name string) bool {
 	return name == "help" || name == "version"
-}
-
-func groupNames() []string {
-	names := make([]string, 0, len(app.groups))
-	for name := range app.groups {
-		if app.groups[name].hidden {
-			continue
-		}
-		names = append(names, name)
-	}
-
-	slices.Sort(names)
-	return names
-}
-
-func groupCommandNames(groupName string) []string {
-	group, found := app.groups[groupName]
-	if !found {
-		return nil
-	}
-
-	names := make([]string, 0, len(group.commands))
-	for name := range group.commands {
-		if group.commands[name].hidden {
-			continue
-		}
-		names = append(names, name)
-	}
-
-	slices.Sort(names)
-	return names
-}
-
-func writeCommandSummaries(
-	b *strings.Builder,
-	indent string,
-	names []string,
-	description func(string) string,
-	options ...any,
-) {
-	display := func(name string) string { return name }
-	column := 0
-	for _, option := range options {
-		switch option := option.(type) {
-		case func(string) string:
-			display = option
-		case int:
-			column = option
-		}
-	}
-
-	if column == 0 {
-		for _, name := range names {
-			if n := len(indent) + len(display(name)) + 2; n > column {
-				column = n
-			}
-		}
-	}
-
-	for _, name := range names {
-		label := display(name)
-		desc := description(name)
-		if desc == "" {
-			fmt.Fprintf(b, "%s%s\n", indent, label)
-			continue
-		}
-		padding := column - len(indent) - len(label)
-		if padding < 2 {
-			padding = 2
-		}
-		fmt.Fprintf(b, "%s%s%s%s\n", indent, label, strings.Repeat(" ", padding), desc)
-	}
-}
-
-func globalCommandDescriptionColumn() int {
-	column := 0
-
-	for _, name := range commandNames() {
-		if n := len("  ") + len(name) + 2; n > column {
-			column = n
-		}
-	}
-
-	for _, groupName := range groupNames() {
-		if n := len("  ") + len(groupName) + len(":") + 2; n > column {
-			column = n
-		}
-		for _, commandName := range groupCommandNames(groupName) {
-			fullName := groupName + " " + commandName
-			if n := len("    ") + len(fullName) + 2; n > column {
-				column = n
-			}
-		}
-	}
-
-	return column
-}
-
-func writeGroupSummary(b *strings.Builder, groupName string, column int) {
-	label := groupName + ":"
-	desc := groupDescription(groupName)
-	if desc == "" {
-		fmt.Fprintf(b, "  %s\n", label)
-		return
-	}
-
-	padding := column - len("  ") - len(label)
-	if padding < 2 {
-		padding = 2
-	}
-	fmt.Fprintf(b, "  %s%s%s\n", label, strings.Repeat(" ", padding), desc)
-}
-
-func commandDescription(name string) string {
-	switch name {
-	case "help":
-		if _, found := app.commands["help"]; !found {
-			return "Show help information."
-		}
-	case "version":
-		if _, found := app.commands["version"]; !found {
-			return "Show version information."
-		}
-	}
-
-	cmd, found := app.commands[name]
-	if !found {
-		return ""
-	}
-
-	return cmd.description
-}
-
-func groupCommandDescription(groupName string, commandName string) string {
-	group, found := app.groups[groupName]
-	if !found {
-		return ""
-	}
-
-	cmd, found := group.commands[commandName]
-	if !found {
-		return ""
-	}
-
-	return cmd.description
-}
-
-func groupDescription(name string) string {
-	group, found := app.groups[name]
-	if !found {
-		return ""
-	}
-
-	return group.description
 }
