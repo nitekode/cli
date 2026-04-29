@@ -17,12 +17,14 @@ const (
 )
 
 type commandArgument struct {
-	Name    string
-	Kind    argumentKind
-	Default string
+	Description string
+	Name        string
+	Kind        argumentKind
+	Default     string
 }
 
 type command struct {
+	description string
 	name        string
 	arguments   []commandArgument
 	handlerType reflect.Type
@@ -34,10 +36,13 @@ type command struct {
 var errorType = reflect.TypeFor[error]()
 var stringType = reflect.TypeFor[string]()
 
-func newCommand(sig string, handler any, opts ...CommandOption) (command, error) {
+func newCommand(sig string, description string, handler any, opts ...CommandOption) (command, error) {
 	parsedSig, err := parseSignature(sig)
 	if err != nil {
 		return command{}, err
+	}
+	if strings.TrimSpace(description) == "" {
+		return command{}, errors.New("command description cannot be empty")
 	}
 
 	handlerValue := reflect.ValueOf(handler)
@@ -52,6 +57,7 @@ func newCommand(sig string, handler any, opts ...CommandOption) (command, error)
 	}
 
 	cmd := command{
+		description: description,
 		name:        parsedSig.Command,
 		arguments:   arguments,
 		handlerType: handlerType,
@@ -60,6 +66,9 @@ func newCommand(sig string, handler any, opts ...CommandOption) (command, error)
 
 	for _, opt := range opts {
 		opt.applyCommand(&cmd)
+	}
+	if err := validateCommandOptions(cmd); err != nil {
+		return command{}, err
 	}
 
 	return cmd, nil
@@ -98,8 +107,9 @@ func compileCommandArguments(sig signature, handlerType reflect.Type) ([]command
 
 func compileCommandArgument(sigArg argument, paramType reflect.Type, variadic bool) (commandArgument, error) {
 	arg := commandArgument{
-		Name:    sigArg.Name,
-		Default: sigArg.Default,
+		Description: sigArg.Description,
+		Name:        sigArg.Name,
+		Default:     sigArg.Default,
 	}
 
 	switch {
@@ -238,6 +248,19 @@ func (cmd command) argumentNames() []string {
 	}
 
 	return names
+}
+
+func validateCommandOptions(cmd command) error {
+	for _, arg := range cmd.arguments {
+		if arg.Description == "" {
+			continue
+		}
+		if arg.Name == "" {
+			return fmt.Errorf("argument description must refer to a named argument")
+		}
+	}
+
+	return nil
 }
 
 func formatUsageArgument(arg commandArgument) string {

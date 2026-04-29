@@ -8,6 +8,17 @@ type GroupOption interface {
 	applyGroup(*group)
 }
 
+func setArgumentDescription(cmd *command, name string, description string) {
+	for i := range cmd.arguments {
+		if cmd.arguments[i].Name == name {
+			cmd.arguments[i].Description = description
+			return
+		}
+	}
+
+	panic("cli: unknown argument " + name)
+}
+
 // Middleware
 
 type middlewareOption struct {
@@ -33,3 +44,28 @@ func Hidden() hiddenOption { return hiddenOption{} }
 
 func (hiddenOption) applyCommand(cmd *command) { cmd.hidden = true }
 func (hiddenOption) applyGroup(group *group)   { group.hidden = true }
+
+// ArgDesc
+
+type argDescOption struct {
+	name        string
+	description string
+}
+
+func ArgDesc(name string, description string) argDescOption {
+	return argDescOption{
+		name:        name,
+		description: description,
+	}
+}
+
+func (o argDescOption) applyCommand(cmd *command) {
+	for i := range cmd.arguments {
+		if cmd.arguments[i].Name == o.name {
+			cmd.arguments[i].Description = o.description
+			return
+		}
+	}
+
+	panic("cli: unknown argument " + o.name)
+}

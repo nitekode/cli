@@ -12,13 +12,17 @@ type signature struct {
 }
 
 type argument struct {
-	Name       string
-	HasDefault bool
-	Default    string
+	Description string
+	Name        string
+	HasDefault  bool
+	Default     string
 }
 
 func parseSignature(sig string) (signature, error) {
-	tokens := strings.Fields(sig)
+	tokens, err := tokenizeSignature(sig)
+	if err != nil {
+		return signature{}, err
+	}
 	if len(tokens) == 0 {
 		return signature{}, fmt.Errorf("signature cannot be empty")
 	}
@@ -53,6 +57,49 @@ func parseSignature(sig string) (signature, error) {
 	return parsed, nil
 }
 
+func tokenizeSignature(sig string) ([]string, error) {
+	tokens := make([]string, 0)
+	start := -1
+	depth := 0
+
+	for i, r := range sig {
+		switch {
+		case unicode.IsSpace(r):
+			if depth == 0 {
+				if start >= 0 {
+					tokens = append(tokens, sig[start:i])
+					start = -1
+				}
+				continue
+			}
+		case r == '{':
+			if depth == 0 && start == -1 {
+				start = i
+			}
+			depth++
+		case r == '}':
+			if depth == 0 {
+				return nil, fmt.Errorf("invalid signature %q: unexpected closing brace", sig)
+			}
+			depth--
+		default:
+			if start == -1 {
+				start = i
+			}
+		}
+	}
+
+	if depth != 0 {
+		return nil, fmt.Errorf("invalid signature %q: missing closing brace", sig)
+	}
+
+	if start >= 0 {
+		tokens = append(tokens, sig[start:])
+	}
+
+	return tokens, nil
+}
+
 func parseArgument(token string) (argument, error) {
 	if len(token) < 3 || token[0] != '{' || token[len(token)-1] != '}' {
 		return argument{}, fmt.Errorf("invalid argument %q: arguments must be wrapped in braces", token)
@@ -68,17 +115,30 @@ func parseArgument(token string) (argument, error) {
 		return argument{}, fmt.Errorf("invalid argument %q: optional and repeated markers are inferred from the handler", token)
 	}
 
-	if strings.Contains(raw, "=") {
-		name, defaultValue, _ := strings.Cut(raw, "=")
-		arg.Name = name
+	namePart := raw
+	if strings.Contains(raw, ":") {
+		var description string
+		namePart, description, _ = strings.Cut(raw, ":")
+		if description == "" {
+			return argument{}, fmt.Errorf("invalid argument %q: description cannot be empty", token)
+		}
+		if strings.Contains(description, "=") {
+			description, arg.Default, _ = strings.Cut(description, "=")
+			arg.HasDefault = true
+		}
+		arg.Description = strings.TrimSpace(description)
+	} else if strings.Contains(raw, "=") {
+		namePart, arg.Default, _ = strings.Cut(raw, "=")
 		arg.HasDefault = true
-		arg.Default = defaultValue
-	} else {
-		arg.Name = raw
 	}
+	arg.Name = strings.TrimSpace(namePart)
+	arg.Default = strings.TrimSpace(arg.Default)
 
 	if err := validateArgumentName(arg.Name); err != nil {
 		return argument{}, fmt.Errorf("invalid argument %q: %w", token, err)
+	}
+	if arg.HasDefault && arg.Default == "" {
+		return argument{}, fmt.Errorf("invalid argument %q: default value cannot be empty", token)
 	}
 
 	return arg, nil

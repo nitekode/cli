@@ -109,8 +109,8 @@ func TestInvokeCommand(t *testing.T) {
 		var gotOthers []string
 
 		cmd := command{
-			name:        "greet",
-			handler:     reflect.ValueOf(func(name string, title string, suffix *string, others ...string) error {
+			name: "greet",
+			handler: reflect.ValueOf(func(name string, title string, suffix *string, others ...string) error {
 				gotName = name
 				gotTitle = title
 				gotSuffix = suffix
@@ -234,8 +234,8 @@ func TestInvokeCommandWithMiddleware(t *testing.T) {
 	)
 
 	cmd := command{
-		name:        "greet",
-		handler:     reflect.ValueOf(func() error {
+		name: "greet",
+		handler: reflect.ValueOf(func() error {
 			calls = append(calls, "handler")
 			return nil
 		}),
@@ -265,8 +265,8 @@ func TestInvokeCommandMiddlewareCanAbort(t *testing.T) {
 	})
 
 	cmd := command{
-		name:        "greet",
-		handler:     reflect.ValueOf(func() error {
+		name: "greet",
+		handler: reflect.ValueOf(func() error {
 			calledHandler = true
 			return nil
 		}),
@@ -317,8 +317,8 @@ func TestInvokeCommandWithScopedMiddlewareOrder(t *testing.T) {
 	}
 
 	cmd := command{
-		name:        "add",
-		handler:     reflect.ValueOf(func() error {
+		name: "add",
+		handler: reflect.ValueOf(func() error {
 			calls = append(calls, "handler")
 			return nil
 		}),

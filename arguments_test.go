@@ -3,7 +3,7 @@ package cli
 import "testing"
 
 func TestParseSignatureValid(t *testing.T) {
-	sig, err := parseSignature("greet {arg1} {arg2=default} {arg3}")
+	sig, err := parseSignature("greet {arg1:first number} {arg2:second number=default} {arg3}")
 	if err != nil {
 		t.Fatalf("parseSignature returned error: %v", err)
 	}
@@ -16,14 +16,15 @@ func TestParseSignatureValid(t *testing.T) {
 		t.Fatalf("len(Args) = %d, want 3", len(sig.Args))
 	}
 
-	if sig.Args[0] != (argument{Name: "arg1"}) {
+	if sig.Args[0] != (argument{Name: "arg1", Description: "first number"}) {
 		t.Fatalf("Args[0] = %#v", sig.Args[0])
 	}
 
 	if sig.Args[1] != (argument{
-		Name:       "arg2",
-		HasDefault: true,
-		Default:    "default",
+		Description: "second number",
+		Name:        "arg2",
+		HasDefault:  true,
+		Default:     "default",
 	}) {
 		t.Fatalf("Args[1] = %#v", sig.Args[1])
 	}
@@ -86,6 +87,10 @@ func TestParseSignatureInvalid(t *testing.T) {
 		{
 			name: "missing braces",
 			sig:  "greet arg1",
+		},
+		{
+			name: "empty default",
+			sig:  "greet {arg1=}",
 		},
 	}
 

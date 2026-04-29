@@ -31,9 +31,9 @@ var app = struct {
 	out io.Writer
 	err io.Writer
 
-	commands    map[string]command
-	groups      map[string]*group
-	middleware  []MiddlewareFunc
+	commands   map[string]command
+	groups     map[string]*group
+	middleware []MiddlewareFunc
 }{
 	name: filepath.Base(os.Args[0]),
 
@@ -50,7 +50,7 @@ var app = struct {
 }
 
 type GroupAdder interface {
-	Command(sig string, handler any, opts ...CommandOption)
+	Command(sig string, description string, handler any, opts ...CommandOption)
 }
 
 func Name(name string) {
@@ -101,8 +101,8 @@ func Err() io.Writer {
 	return app.err
 }
 
-func Command(sig string, handler any, opts ...CommandOption) {
-	cmd, err := newCommand(sig, handler, opts...)
+func Command(sig string, description string, handler any, opts ...CommandOption) {
+	cmd, err := newCommand(sig, description, handler, opts...)
 	if err != nil {
 		panic("cli: " + err.Error())
 	}
@@ -114,9 +114,12 @@ func Command(sig string, handler any, opts ...CommandOption) {
 	app.commands[cmd.name] = cmd
 }
 
-func Group(name string, register func(GroupAdder), opts ...GroupOption) {
+func Group(name string, description string, register func(GroupAdder), opts ...GroupOption) {
 	if err := validateGroupName(name); err != nil {
 		panic("cli: " + err.Error())
+	}
+	if strings.TrimSpace(description) == "" {
+		panic("cli: group description cannot be empty")
 	}
 	if isBuiltInCommandName(name) {
 		panic("cli: group name conflicts with built-in command " + strconv.Quote(name))
@@ -129,8 +132,9 @@ func Group(name string, register func(GroupAdder), opts ...GroupOption) {
 	}
 
 	g := &group{
-		name:     name,
-		commands: make(map[string]command),
+		description: description,
+		name:        name,
+		commands:    make(map[string]command),
 	}
 	for _, opt := range opts {
 		opt.applyGroup(g)
@@ -212,7 +216,7 @@ func printUsageAndExit() {
 func globalHelp(executable string) string {
 	var b strings.Builder
 
-	writeAppHeader(&b)
+	writeHelpHeader(&b)
 	b.WriteString("Usage:\n")
 
 	if _, hasRoot := app.commands[""]; hasRoot {
@@ -225,14 +229,16 @@ func globalHelp(executable string) string {
 
 	if hasNamedCommands() || len(app.groups) > 0 {
 		b.WriteString("\nCommands:\n")
-		for _, name := range commandNames() {
-			fmt.Fprintf(&b, "  %s\n", name)
-		}
+		column := globalCommandDescriptionColumn()
+		writeCommandSummaries(&b, "  ", commandNames(), commandDescription, column)
 		for _, groupName := range groupNames() {
-			fmt.Fprintf(&b, "  %s\n", groupName)
-			for _, commandName := range groupCommandNames(groupName) {
-				fmt.Fprintf(&b, "    %s %s\n", groupName, commandName)
-			}
+			writeGroupSummary(&b, groupName, column)
+			groupCommands := groupCommandNames(groupName)
+			writeCommandSummaries(&b, "    ", groupCommands, func(commandName string) string {
+				return groupCommandDescription(groupName, commandName)
+			}, func(commandName string) string {
+				return groupName + " " + commandName
+			}, column)
 		}
 	}
 
@@ -242,14 +248,25 @@ func globalHelp(executable string) string {
 func commandHelp(executable string, cmd command) string {
 	var b strings.Builder
 
-	writeAppHeader(&b)
+	if cmd.description != "" {
+		b.WriteString(cmd.description)
+		b.WriteString("\n\n")
+	}
 	b.WriteString("Usage:\n")
 	fmt.Fprintf(&b, "  %s\n", cmd.usage(executable))
 
-	if names := cmd.argumentNames(); len(names) > 0 {
+	if len(cmd.arguments) > 0 {
 		b.WriteString("\nArguments:\n")
-		for _, name := range names {
-			fmt.Fprintf(&b, "  %s\n", name)
+		for _, arg := range cmd.arguments {
+			suffix := ""
+			if arg.Kind == defaultArgument {
+				suffix = fmt.Sprintf(" (default=%s)", arg.Default)
+			}
+			if arg.Description == "" {
+				fmt.Fprintf(&b, "  %s%s\n", arg.Name, suffix)
+				continue
+			}
+			fmt.Fprintf(&b, "  %s  %s%s\n", arg.Name, arg.Description, suffix)
 		}
 	}
 
@@ -283,30 +300,24 @@ func versionString() string {
 func groupHelp(executable string, group *group) string {
 	var b strings.Builder
 
-	writeAppHeader(&b)
+	if group.description != "" {
+		b.WriteString(group.description)
+		b.WriteString("\n\n")
+	}
 	b.WriteString("Usage:\n")
-	fmt.Fprintf(&b, "  %s {command} [arguments]\n", executable)
+	fmt.Fprintf(&b, "  %s %s {command} [arguments]\n", executable, group.name)
 
 	if len(group.commands) > 0 {
-		fmt.Fprintf(&b, "\nCommands in the %q group:\n", group.name)
-		for _, commandName := range groupCommandNames(group.name) {
-			fmt.Fprintf(&b, "  %s %s\n", group.name, commandName)
-		}
+		b.WriteString("\nCommands:\n")
+		writeCommandSummaries(&b, "  ", groupCommandNames(group.name), func(commandName string) string {
+			return groupCommandDescription(group.name, commandName)
+		})
 	}
 
 	return b.String()
 }
 
-func writeAppHeader(b *strings.Builder) {
-	if app.name != "" {
-		b.WriteString(app.name)
-		if app.version != "" {
-			b.WriteString(" ")
-			b.WriteString(app.version)
-		}
-		b.WriteString("\n")
-	}
-
+func writeHelpHeader(b *strings.Builder) {
 	if app.description != "" {
 		b.WriteString(app.description)
 		b.WriteString("\n")
@@ -432,4 +443,127 @@ func groupCommandNames(groupName string) []string {
 
 	slices.Sort(names)
 	return names
+}
+
+func writeCommandSummaries(
+	b *strings.Builder,
+	indent string,
+	names []string,
+	description func(string) string,
+	options ...any,
+) {
+	display := func(name string) string { return name }
+	column := 0
+	for _, option := range options {
+		switch option := option.(type) {
+		case func(string) string:
+			display = option
+		case int:
+			column = option
+		}
+	}
+
+	if column == 0 {
+		for _, name := range names {
+			if n := len(indent) + len(display(name)) + 2; n > column {
+				column = n
+			}
+		}
+	}
+
+	for _, name := range names {
+		label := display(name)
+		desc := description(name)
+		if desc == "" {
+			fmt.Fprintf(b, "%s%s\n", indent, label)
+			continue
+		}
+		padding := column - len(indent) - len(label)
+		if padding < 2 {
+			padding = 2
+		}
+		fmt.Fprintf(b, "%s%s%s%s\n", indent, label, strings.Repeat(" ", padding), desc)
+	}
+}
+
+func globalCommandDescriptionColumn() int {
+	column := 0
+
+	for _, name := range commandNames() {
+		if n := len("  ") + len(name) + 2; n > column {
+			column = n
+		}
+	}
+
+	for _, groupName := range groupNames() {
+		if n := len("  ") + len(groupName) + len(":") + 2; n > column {
+			column = n
+		}
+		for _, commandName := range groupCommandNames(groupName) {
+			fullName := groupName + " " + commandName
+			if n := len("    ") + len(fullName) + 2; n > column {
+				column = n
+			}
+		}
+	}
+
+	return column
+}
+
+func writeGroupSummary(b *strings.Builder, groupName string, column int) {
+	label := groupName + ":"
+	desc := groupDescription(groupName)
+	if desc == "" {
+		fmt.Fprintf(b, "  %s\n", label)
+		return
+	}
+
+	padding := column - len("  ") - len(label)
+	if padding < 2 {
+		padding = 2
+	}
+	fmt.Fprintf(b, "  %s%s%s\n", label, strings.Repeat(" ", padding), desc)
+}
+
+func commandDescription(name string) string {
+	switch name {
+	case "help":
+		if _, found := app.commands["help"]; !found {
+			return "Show help information."
+		}
+	case "version":
+		if _, found := app.commands["version"]; !found {
+			return "Show version information."
+		}
+	}
+
+	cmd, found := app.commands[name]
+	if !found {
+		return ""
+	}
+
+	return cmd.description
+}
+
+func groupCommandDescription(groupName string, commandName string) string {
+	group, found := app.groups[groupName]
+	if !found {
+		return ""
+	}
+
+	cmd, found := group.commands[commandName]
+	if !found {
+		return ""
+	}
+
+	return cmd.description
+}
+
+func groupDescription(name string) string {
+	group, found := app.groups[name]
+	if !found {
+		return ""
+	}
+
+	return group.description
 }

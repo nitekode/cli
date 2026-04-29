@@ -1,18 +1,19 @@
 package cli
 
 type group struct {
-	name     string
-	commands map[string]command
-	hidden   bool
-	middleware []MiddlewareFunc
+	description string
+	name        string
+	commands    map[string]command
+	hidden      bool
+	middleware  []MiddlewareFunc
 }
 
 type groupAdder struct {
 	group *group
 }
 
-func (g groupAdder) Command(sig string, handler any, opts ...CommandOption) {
-	cmd, err := newCommand(sig, handler, opts...)
+func (g groupAdder) Command(sig string, description string, handler any, opts ...CommandOption) {
+	cmd, err := newCommand(sig, description, handler, opts...)
 	if err != nil {
 		panic("cli: " + err.Error())
 	}

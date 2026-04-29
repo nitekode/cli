@@ -30,7 +30,7 @@ func TestRunWith(t *testing.T) {
 		app.builtAt = originalBuiltAt
 	}()
 
-	Command("greet {name} {title=friend} {suffix} {others}", func(name string, title string, suffix *string, others ...string) error {
+	Command("greet {name} {title=friend} {suffix} {others}", "Greet someone.", func(name string, title string, suffix *string, others ...string) error {
 		return nil
 	})
 
@@ -70,7 +70,7 @@ func TestRunWith(t *testing.T) {
 	app.groups = make(map[string]*group)
 
 	var gotPath *string
-	Command("{path}", func(path *string) error {
+	Command("{path}", "Read a path.", func(path *string) error {
 		gotPath = path
 		return nil
 	})
@@ -103,7 +103,7 @@ func TestRunWithRootOptionalNoArgs(t *testing.T) {
 	}()
 
 	var gotPath *string
-	Command("{file}", func(file *string) error {
+	Command("{file}", "Read a file.", func(file *string) error {
 		gotPath = file
 		return nil
 	})
@@ -129,12 +129,12 @@ func TestRunWithPrefersSubcommandOverRoot(t *testing.T) {
 
 	var called string
 
-	Command("{value}", func(value string) error {
+	Command("{value}", "Handle a value.", func(value string) error {
 		called = "root:" + value
 		return nil
 	})
 
-	Command("greet {name}", func(name string) error {
+	Command("greet {name}", "Greet someone.", func(name string) error {
 		called = "sub:" + name
 		return nil
 	})
@@ -160,8 +160,8 @@ func TestRunWithGroupCommand(t *testing.T) {
 
 	var called string
 
-	Group("secret", func(g GroupAdder) {
-		g.Command("add {name}", func(name string) error {
+	Group("secret", "Secret commands.", func(g GroupAdder) {
+		g.Command("add {name}", "Add a secret.", func(name string) error {
 			called = "add:" + name
 			return nil
 		})
@@ -195,9 +195,9 @@ func TestRunWithGroupWithoutCommandReturnsGroupHelp(t *testing.T) {
 		app.version = originalVersion
 	}()
 
-	Group("calc", func(g GroupAdder) {
-		g.Command("add {a} {b}", func(a string, b string) error { return nil })
-		g.Command("sub {a} {b}", func(a string, b string) error { return nil })
+	Group("calc", "Calculator commands.", func(g GroupAdder) {
+		g.Command("add {a} {b}", "Add two numbers.", func(a string, b string) error { return nil })
+		g.Command("sub {a} {b}", "Subtract two numbers.", func(a string, b string) error { return nil })
 	})
 
 	err := RunWith([]string{"myapp", "calc"})
@@ -207,11 +207,12 @@ func TestRunWithGroupWithoutCommandReturnsGroupHelp(t *testing.T) {
 	}
 
 	for _, want := range []string{
+		"Calculator commands.\n",
 		"Usage:",
-		"  myapp {command} [arguments]",
-		`Commands in the "calc" group:`,
-		"  calc add",
-		"  calc sub",
+		"  myapp calc {command} [arguments]",
+		"Commands:",
+		"  add",
+		"  sub",
 	} {
 		if !strings.Contains(usage.body, want) {
 			t.Fatalf("group help missing %q in:\n%s", want, usage.body)
@@ -237,8 +238,8 @@ func TestRunWithHelpForGroup(t *testing.T) {
 		app.out = originalOut
 	}()
 
-	Group("calc", func(g GroupAdder) {
-		g.Command("add {a} {b}", func(a string, b string) error { return nil })
+	Group("calc", "Calculator commands.", func(g GroupAdder) {
+		g.Command("add {a} {b}", "Add two numbers.", func(a string, b string) error { return nil })
 	})
 
 	if err := RunWith([]string{"myapp", "help", "calc"}); err != nil {
@@ -246,10 +247,11 @@ func TestRunWithHelpForGroup(t *testing.T) {
 	}
 
 	for _, want := range []string{
+		"Calculator commands.\n",
 		"Usage:",
-		"  myapp {command} [arguments]",
-		`Commands in the "calc" group:`,
-		"  calc add",
+		"  myapp calc {command} [arguments]",
+		"Commands:",
+		"  add",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("help output missing %q in:\n%s", want, out.String())
@@ -271,16 +273,19 @@ func TestRunWithHelpForCommand(t *testing.T) {
 		app.out = originalOut
 	}()
 
-	Command("greet {name}", func(name string) error { return nil })
+	Command("greet {name}", "Greet someone.", func(name string) error { return nil }, ArgDesc("name", "The person to greet."))
 
 	if err := RunWith([]string{"myapp", "help", "greet"}); err != nil {
 		t.Fatalf("RunWith returned error: %v", err)
 	}
 
+	if !strings.Contains(out.String(), "Greet someone.\n\n") {
+		t.Fatalf("help output = %q", out.String())
+	}
 	if !strings.Contains(out.String(), "  myapp greet <name>\n") {
 		t.Fatalf("help output = %q", out.String())
 	}
-	if !strings.Contains(out.String(), "\nArguments:\n  name\n") {
+	if !strings.Contains(out.String(), "\nArguments:\n  name  The person to greet.\n") {
 		t.Fatalf("help output = %q", out.String())
 	}
 }
@@ -299,25 +304,53 @@ func TestRunWithHelpForGroupedCommand(t *testing.T) {
 		app.out = originalOut
 	}()
 
-	Group("calc", func(g GroupAdder) {
-		g.Command("add {a} {b}", func(a string, b string) error { return nil })
+	Group("calc", "Calculator commands.", func(g GroupAdder) {
+		g.Command("add {a:first number} {b:second number}", "Add two numbers.", func(a string, b string) error { return nil })
 	})
 
 	if err := RunWith([]string{"myapp", "help", "calc", "add"}); err != nil {
 		t.Fatalf("RunWith returned error: %v", err)
 	}
 
+	if !strings.Contains(out.String(), "Add two numbers.\n\n") {
+		t.Fatalf("help output = %q", out.String())
+	}
 	if !strings.Contains(out.String(), "  myapp calc add <a> <b>\n") {
 		t.Fatalf("help output = %q", out.String())
 	}
 	for _, want := range []string{
 		"\nArguments:\n",
-		"  a\n",
-		"  b\n",
+		"  a  first number\n",
+		"  b  second number\n",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("help output missing %q in:\n%s", want, out.String())
 		}
+	}
+}
+
+func TestRunWithHelpForCommandShowsArgumentDefault(t *testing.T) {
+	originalCommands := app.commands
+	originalGroups := app.groups
+	originalOut := app.out
+	app.commands = make(map[string]command)
+	app.groups = make(map[string]*group)
+	var out bytes.Buffer
+	app.out = &out
+	defer func() {
+		app.commands = originalCommands
+		app.groups = originalGroups
+		app.out = originalOut
+	}()
+
+	Command("sleep {duration=1}", "Sleep for a second", func(duration string) error { return nil }, ArgDesc("duration", "sleep time in seconds"))
+
+	if err := RunWith([]string{"myapp", "help", "sleep"}); err != nil {
+		t.Fatalf("RunWith returned error: %v", err)
+	}
+
+	if !strings.Contains(out.String(), "  duration  sleep time in seconds (default=1)\n") {
+		t.Fatalf("help output = %q", out.String())
 	}
 }
 
@@ -331,8 +364,8 @@ func TestRunWithUnknownGroupCommandReturnsGroupHelp(t *testing.T) {
 		app.groups = originalGroups
 	}()
 
-	Group("calc", func(g GroupAdder) {
-		g.Command("add {a} {b}", func(a string, b string) error { return nil })
+	Group("calc", "Calculator commands.", func(g GroupAdder) {
+		g.Command("add {a} {b}", "Add two numbers.", func(a string, b string) error { return nil })
 	})
 
 	err := RunWith([]string{"myapp", "calc", "mul"})
@@ -341,7 +374,7 @@ func TestRunWithUnknownGroupCommandReturnsGroupHelp(t *testing.T) {
 		t.Fatalf("RunWith error = %v, want usageError", err)
 	}
 
-	if !strings.Contains(usage.body, "  myapp {command} [arguments]") {
+	if !strings.Contains(usage.body, "  myapp calc {command} [arguments]") {
 		t.Fatalf("group help = %q", usage.body)
 	}
 }
@@ -358,13 +391,13 @@ func TestRunWithGroupTakesPrecedenceOverRoot(t *testing.T) {
 
 	var called string
 
-	Command("{value}", func(value string) error {
+	Command("{value}", "Handle a value.", func(value string) error {
 		called = "root:" + value
 		return nil
 	})
 
-	Group("secret", func(g GroupAdder) {
-		g.Command("add", func() error {
+	Group("secret", "Secret commands.", func(g GroupAdder) {
+		g.Command("add", "Add a secret.", func() error {
 			called = "group:add"
 			return nil
 		})
@@ -399,31 +432,30 @@ func TestGlobalHelp(t *testing.T) {
 		app.groups = originalGroups
 	}()
 
-	Command("{file}", func(file *string) error { return nil })
-	Command("greet {name}", func(name string) error { return nil })
-	Command("version", func() error { return nil })
-	Group("secret", func(g GroupAdder) {
-		g.Command("add {name}", func(name string) error { return nil })
-		g.Command("edit {name}", func(name string) error { return nil })
-		g.Command("delete {name}", func(name string) error { return nil })
+	Command("{file}", "Read a file.", func(file *string) error { return nil })
+	Command("greet {name}", "Greet someone.", func(name string) error { return nil })
+	Command("version", "Show version.", func() error { return nil })
+	Group("secret", "Secret commands.", func(g GroupAdder) {
+		g.Command("add {name}", "Add a secret.", func(name string) error { return nil })
+		g.Command("edit {name}", "Edit a secret", func(name string) error { return nil })
+		g.Command("delete {name}", "Delete a secret", func(name string) error { return nil })
 	})
 
 	got := globalHelp("myapp")
 
 	for _, want := range []string{
-		"myapp 1.2.3",
 		"Example app",
 		"Usage:",
 		"  myapp [arguments]",
 		"  myapp {command} [arguments]",
 		"Commands:",
-		"  greet",
-		"  help",
-		"  secret",
-		"    secret add",
-		"    secret edit",
-		"    secret delete",
-		"  version",
+		"  greet            Greet someone.",
+		"  help             Show help information.",
+		"  secret:          Secret commands.",
+		"    secret add     Add a secret.",
+		"    secret delete  Delete a secret",
+		"    secret edit    Edit a secret",
+		"  version          Show version.",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("globalHelp missing %q in:\n%s", want, got)
@@ -445,7 +477,7 @@ func TestExplicitVersionCommandOverridesBuiltIn(t *testing.T) {
 		app.out = originalOut
 	}()
 
-	Command("version", func() error {
+	Command("version", "Show custom version.", func() error {
 		_, err := fmt.Fprintln(app.out, "custom version")
 		return err
 	})
@@ -495,10 +527,10 @@ func TestGlobalHelpOmitsHiddenCommandAndGroup(t *testing.T) {
 		app.groups = originalGroups
 	}()
 
-	Command("visible", func() error { return nil })
-	Command("hidden", func() error { return nil }, Hidden())
-	Group("secret", func(g GroupAdder) {
-		g.Command("add", func() error { return nil })
+	Command("visible", "Visible command.", func() error { return nil })
+	Command("hidden", "Hidden command.", func() error { return nil }, Hidden())
+	Group("secret", "Secret commands.", func(g GroupAdder) {
+		g.Command("add", "Add a secret.", func() error { return nil })
 	}, Hidden())
 
 	got := globalHelp("myapp")
@@ -509,7 +541,7 @@ func TestGlobalHelpOmitsHiddenCommandAndGroup(t *testing.T) {
 	if strings.Contains(got, "\n  secret\n") || strings.Contains(got, "secret add") {
 		t.Fatalf("globalHelp should omit hidden group:\n%s", got)
 	}
-	if !strings.Contains(got, "\n  visible\n") {
+	if !strings.Contains(got, "\n  visible  Visible command.\n") {
 		t.Fatalf("globalHelp should include visible command:\n%s", got)
 	}
 }
@@ -538,7 +570,7 @@ func TestPrintUsageAndExitWritesGlobalHelp(t *testing.T) {
 		app.version = originalVersion
 	}()
 
-	Command("greet {name}", func(name string) error { return nil })
+	Command("greet {name}", "Greet someone.", func(name string) error { return nil })
 
 	got := globalHelp("myapp")
 	if !strings.Contains(got, "  myapp {command} [arguments]") {
