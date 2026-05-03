@@ -157,19 +157,11 @@ func globalHelp(executable string) string {
 	}
 
 	if _, hasRoot := app.commands[""]; hasRoot {
-		usage := executable
-		if app.flags != nil {
-			usage += " [options]"
-		}
-		usage += " [arguments]"
+		usage := executable + " [options] [arguments]"
 		data.Usage = append(data.Usage, usage)
 	}
 	if hasNamedCommands() || len(app.groups) > 0 {
-		usage := executable + " {command}"
-		if app.flags != nil {
-			usage += " [options]"
-		}
-		usage += " [arguments]"
+		usage := executable + " {command} [options] [arguments]"
 		data.Usage = append(data.Usage, usage)
 	}
 

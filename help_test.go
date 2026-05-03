@@ -244,8 +244,8 @@ func TestGlobalHelp(t *testing.T) {
 	for _, want := range []string{
 		"Example app",
 		"Usage:",
-		"  myapp [arguments]",
-		"  myapp {command} [arguments]",
+		"  myapp [options] [arguments]",
+		"  myapp {command} [options] [arguments]",
 		"Commands:",
 		"  greet            Greet someone.",
 		"  help             Show help information.",
@@ -317,7 +317,7 @@ func TestPrintUsageAndExitWritesGlobalHelp(t *testing.T) {
 	Command("greet {name}", "Greet someone.", func(name string) error { return nil })
 
 	got := globalHelp("myapp")
-	if !strings.Contains(got, "  myapp {command} [arguments]") {
+	if !strings.Contains(got, "  myapp {command} [options] [arguments]") {
 		t.Fatalf("globalHelp = %q", got)
 	}
 }
