@@ -4,7 +4,9 @@ type group struct {
 	description string
 	name        string
 	commands    map[string]command
+	flags       *flagSet
 	hidden      bool
+	localFlags  *flagSet
 	middleware  []MiddlewareFunc
 }
 
@@ -25,5 +27,8 @@ func (g groupAdder) Command(sig string, description string, handler any, opts ..
 	}
 
 	cmd.name = g.group.name + " " + cmd.name
+	if err := configureCommandFlags(&cmd, g.group.flags); err != nil {
+		panic("cli: " + err.Error())
+	}
 	g.group.commands[commandLeafName(cmd.name)] = cmd
 }

@@ -23,6 +23,7 @@ var app = struct {
 	err io.Writer
 
 	commands   map[string]command
+	flags      *flagSet
 	groups     map[string]*group
 	middleware []MiddlewareFunc
 }{
@@ -101,6 +102,9 @@ func Command(sig string, description string, handler any, opts ...CommandOption)
 	if _, exists := app.groups[cmd.name]; cmd.name != "" && exists {
 		panic("cli: command name conflicts with existing group " + strconv.Quote(cmd.name))
 	}
+	if err := configureCommandFlags(&cmd, app.flags); err != nil {
+		panic("cli: " + err.Error())
+	}
 
 	app.commands[cmd.name] = cmd
 }
@@ -129,6 +133,9 @@ func Group(name string, description string, register func(GroupAdder), opts ...G
 	}
 	for _, opt := range opts {
 		opt.applyGroup(g)
+	}
+	if err := configureGroupFlags(g); err != nil {
+		panic("cli: " + err.Error())
 	}
 	app.groups[name] = g
 	register(groupAdder{group: g})

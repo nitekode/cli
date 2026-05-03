@@ -81,7 +81,7 @@ func TestCompileCommandArguments(t *testing.T) {
 				handlerType = handlerValue.Type()
 			}
 
-			_, err = compileCommandArguments(sig, handlerType)
+			_, _, err = compileCommandArguments(sig, handlerType)
 			if tt.wantErr == "" {
 				if err != nil {
 					t.Fatalf("compileCommandArguments returned error: %v", err)

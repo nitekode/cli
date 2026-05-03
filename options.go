@@ -69,3 +69,17 @@ func (o argDescOption) applyCommand(cmd *command) {
 
 	panic("cli: unknown argument " + o.name)
 }
+
+// Flags
+
+type flagsOption struct {
+	flags *flagSet
+}
+
+func (o flagsOption) applyCommand(cmd *command) {
+	cmd.localFlags = o.flags
+}
+
+func (o flagsOption) applyGroup(group *group) {
+	group.localFlags = o.flags
+}

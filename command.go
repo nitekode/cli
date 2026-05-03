@@ -24,13 +24,16 @@ type commandArgument struct {
 }
 
 type command struct {
-	description string
-	name        string
-	arguments   []commandArgument
-	handlerType reflect.Type
-	handler     reflect.Value
-	hidden      bool
-	middleware  []MiddlewareFunc
+	description      string
+	name             string
+	arguments        []commandArgument
+	flags            *flagSet
+	handlerType      reflect.Type
+	handler          reflect.Value
+	handlerFlagsType reflect.Type
+	hidden           bool
+	localFlags       *flagSet
+	middleware       []MiddlewareFunc
 }
 
 var errorType = reflect.TypeFor[error]()
@@ -51,17 +54,18 @@ func newCommand(sig string, description string, handler any, opts ...CommandOpti
 	}
 
 	handlerType := handlerValue.Type()
-	arguments, err := compileCommandArguments(parsedSig, handlerType)
+	arguments, handlerFlagsType, err := compileCommandArguments(parsedSig, handlerType)
 	if err != nil {
 		return command{}, err
 	}
 
 	cmd := command{
-		description: description,
-		name:        parsedSig.Command,
-		arguments:   arguments,
-		handlerType: handlerType,
-		handler:     handlerValue,
+		description:      description,
+		name:             parsedSig.Command,
+		arguments:        arguments,
+		handlerType:      handlerType,
+		handler:          handlerValue,
+		handlerFlagsType: handlerFlagsType,
 	}
 
 	for _, opt := range opts {
@@ -74,35 +78,43 @@ func newCommand(sig string, description string, handler any, opts ...CommandOpti
 	return cmd, nil
 }
 
-func compileCommandArguments(sig signature, handlerType reflect.Type) ([]commandArgument, error) {
+func compileCommandArguments(sig signature, handlerType reflect.Type) ([]commandArgument, reflect.Type, error) {
 	if handlerType == nil || handlerType.Kind() != reflect.Func {
-		return nil, errors.New("handler must be a function")
+		return nil, nil, errors.New("handler must be a function")
 	}
 
 	if handlerType.NumOut() != 1 || !handlerType.Out(0).Implements(errorType) {
-		return nil, errors.New("handler must return a single error")
+		return nil, nil, errors.New("handler must return a single error")
 	}
 
-	if handlerType.NumIn() != len(sig.Args) {
-		return nil, fmt.Errorf(
+	argOffset := 0
+	var handlerFlagsType reflect.Type
+	if handlerType.NumIn() > 0 && handlerType.In(0).Kind() == reflect.Struct {
+		handlerFlagsType = handlerType.In(0)
+		argOffset = 1
+	}
+
+	if handlerType.NumIn()-argOffset != len(sig.Args) {
+		return nil, nil, fmt.Errorf(
 			"handler for %q expects %d parameters, signature defines %d arguments",
 			sig.Command,
-			handlerType.NumIn(),
+			handlerType.NumIn()-argOffset,
 			len(sig.Args),
 		)
 	}
 
 	arguments := make([]commandArgument, len(sig.Args))
 	for i, sigArg := range sig.Args {
-		arg, err := compileCommandArgument(sigArg, handlerType.In(i), handlerType.IsVariadic() && i == handlerType.NumIn()-1)
+		paramIndex := i + argOffset
+		arg, err := compileCommandArgument(sigArg, handlerType.In(paramIndex), handlerType.IsVariadic() && paramIndex == handlerType.NumIn()-1)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		arguments[i] = arg
 	}
 
-	return arguments, nil
+	return arguments, handlerFlagsType, nil
 }
 
 func compileCommandArgument(sigArg argument, paramType reflect.Type, variadic bool) (commandArgument, error) {
@@ -141,7 +153,12 @@ func compileCommandArgument(sigArg argument, paramType reflect.Type, variadic bo
 
 func (cmd command) invoke(providedArgs []string, middleware ...MiddlewareFunc) error {
 	next := func() error {
-		inputs, err := bindInputs(cmd.arguments, cmd.handlerType, providedArgs)
+		flagsValue, positionals, err := parseFlags(cmd.flags, providedArgs)
+		if err != nil {
+			return err
+		}
+
+		inputs, err := bindInputs(cmd.arguments, cmd.handlerType, cmd.handlerFlagsType, flagsValue, positionals)
 		if err != nil {
 			return err
 		}
@@ -171,12 +188,17 @@ func (cmd command) invoke(providedArgs []string, middleware ...MiddlewareFunc) e
 	return next()
 }
 
-func bindInputs(args []commandArgument, handlerType reflect.Type, providedArgs []string) ([]reflect.Value, error) {
-	inputs := make([]reflect.Value, 0, len(args))
+func bindInputs(args []commandArgument, handlerType reflect.Type, handlerFlagsType reflect.Type, flagsValue reflect.Value, providedArgs []string) ([]reflect.Value, error) {
+	inputs := make([]reflect.Value, 0, len(args)+1)
+	argOffset := 0
+	if handlerFlagsType != nil {
+		inputs = append(inputs, flagsValue)
+		argOffset = 1
+	}
 	providedIndex := 0
 
 	for i, arg := range args {
-		paramType := handlerType.In(i)
+		paramType := handlerType.In(i + argOffset)
 
 		if arg.Kind == repeatedArgument {
 			values := reflect.MakeSlice(paramType, len(providedArgs)-providedIndex, len(providedArgs)-providedIndex)

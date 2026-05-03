@@ -33,6 +33,7 @@ type helpGroupSection struct {
 type globalHelpData struct {
 	Description string
 	Usage       []string
+	Options     []helpCommandSummary
 	Commands    []helpCommandSummary
 	Groups      []helpGroupSection
 }
@@ -46,12 +47,14 @@ type commandHelpArgument struct {
 type commandHelpData struct {
 	Description string
 	Usage       string
+	Options     []helpCommandSummary
 	Arguments   []commandHelpArgument
 }
 
 type groupHelpData struct {
 	Description string
 	Usage       string
+	Options     []helpCommandSummary
 	Commands    []helpCommandSummary
 }
 
@@ -133,7 +136,7 @@ var groupHelpTemplateSource string
 var globalHelpTemplate = template.Must(template.New("globalHelp").Funcs(helpTemplateFuncs).Parse(
 	globalHelpTemplateSource))
 
-var commandHelpTemplate = template.Must(template.New("commandHelp").Parse(
+var commandHelpTemplate = template.Must(template.New("commandHelp").Funcs(helpTemplateFuncs).Parse(
 	commandHelpTemplateSource))
 
 var groupHelpTemplate = template.Must(template.New("groupHelp").Funcs(helpTemplateFuncs).Parse(
@@ -148,15 +151,42 @@ func globalHelp(executable string) string {
 	data := globalHelpData{
 		Description: app.description,
 		Usage:       make([]string, 0, 2),
+		Options:     make([]helpCommandSummary, 0),
 		Commands:    make([]helpCommandSummary, 0, len(app.commands)),
 		Groups:      make([]helpGroupSection, 0, len(app.groups)),
 	}
 
 	if _, hasRoot := app.commands[""]; hasRoot {
-		data.Usage = append(data.Usage, executable+" [arguments]")
+		usage := executable
+		if app.flags != nil {
+			usage += " [options]"
+		}
+		usage += " [arguments]"
+		data.Usage = append(data.Usage, usage)
 	}
 	if hasNamedCommands() || len(app.groups) > 0 {
-		data.Usage = append(data.Usage, executable+" {command} [arguments]")
+		usage := executable + " {command}"
+		if app.flags != nil {
+			usage += " [options]"
+		}
+		usage += " [arguments]"
+		data.Usage = append(data.Usage, usage)
+	}
+
+	if app.flags != nil {
+		for _, field := range app.flags.fields {
+			desc := field.Description
+			if field.Default != "" {
+				if desc != "" {
+					desc += " "
+				}
+				desc += "(default=" + field.Default + ")"
+			}
+			data.Options = append(data.Options, helpCommandSummary{
+				Label:       formatOptionLabel(field),
+				Description: desc,
+			})
+		}
 	}
 
 	for _, name := range commandNames() {
@@ -187,8 +217,25 @@ func globalHelp(executable string) string {
 func commandHelp(executable string, cmd command) string {
 	data := commandHelpData{
 		Description: cmd.description,
-		Usage:       cmd.usage(executable),
+		Usage:       commandUsage(executable, cmd),
+		Options:     make([]helpCommandSummary, 0),
 		Arguments:   make([]commandHelpArgument, 0, len(cmd.arguments)),
+	}
+	if cmd.flags != nil && len(cmd.flags.fields) > 0 {
+		data.Usage = commandUsageWithOptions(executable, cmd)
+		for _, field := range cmd.flags.fields {
+			desc := field.Description
+			if field.Default != "" {
+				if desc != "" {
+					desc += " "
+				}
+				desc += "(default=" + field.Default + ")"
+			}
+			data.Options = append(data.Options, helpCommandSummary{
+				Label:       formatOptionLabel(field),
+				Description: desc,
+			})
+		}
 	}
 
 	for _, arg := range cmd.arguments {
@@ -209,7 +256,24 @@ func groupHelp(executable string, group *group) string {
 	data := groupHelpData{
 		Description: group.description,
 		Usage:       executable + " " + group.name + " {command} [arguments]",
+		Options:     make([]helpCommandSummary, 0),
 		Commands:    make([]helpCommandSummary, 0, len(group.commands)),
+	}
+	if group.flags != nil && len(group.flags.fields) > 0 {
+		data.Usage = executable + " " + group.name + " {command} [options] [arguments]"
+		for _, field := range group.flags.fields {
+			desc := field.Description
+			if field.Default != "" {
+				if desc != "" {
+					desc += " "
+				}
+				desc += "(default=" + field.Default + ")"
+			}
+			data.Options = append(data.Options, helpCommandSummary{
+				Label:       formatOptionLabel(field),
+				Description: desc,
+			})
+		}
 	}
 
 	for _, commandName := range groupCommandNames(group.name) {
@@ -220,6 +284,33 @@ func groupHelp(executable string, group *group) string {
 	}
 
 	return renderHelpTemplate(groupHelpTemplate, data)
+}
+
+func formatOptionLabel(field flagField) string {
+	label := "--" + field.Name
+	if field.Bool {
+		return label
+	}
+
+	placeholder := strings.ToUpper(strings.ReplaceAll(field.Name, "-", "_"))
+	return label + "[=" + placeholder + "]"
+}
+
+func commandUsage(executable string, cmd command) string {
+	return cmd.usage(executable)
+}
+
+func commandUsageWithOptions(executable string, cmd command) string {
+	parts := make([]string, 0, len(cmd.arguments)+3)
+	parts = append(parts, executable)
+	if cmd.name != "" {
+		parts = append(parts, cmd.name)
+	}
+	parts = append(parts, "[options]")
+	for _, arg := range cmd.arguments {
+		parts = append(parts, formatUsageArgument(arg))
+	}
+	return strings.Join(parts, " ")
 }
 
 func runHelp(args []string) error {
