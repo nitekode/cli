@@ -59,6 +59,98 @@ func TestRunWithPopulatesGlobalFlags(t *testing.T) {
 	}
 }
 
+func TestParseFlagsBoolForms(t *testing.T) {
+	set, err := compileFlagSet(testGlobalFlags{})
+	if err != nil {
+		t.Fatalf("compileFlagSet returned error: %v", err)
+	}
+
+	t.Run("implicit true", func(t *testing.T) {
+		value, positionals, err := parseFlags(set, []string{"--verbose", "alice"})
+		if err != nil {
+			t.Fatalf("parseFlags returned error: %v", err)
+		}
+		if !value.FieldByName("Verbose").Bool() {
+			t.Fatalf("Verbose = false, want true")
+		}
+		if strings.Join(positionals, ",") != "alice" {
+			t.Fatalf("positionals = %#v, want [alice]", positionals)
+		}
+	})
+
+	t.Run("equals false", func(t *testing.T) {
+		value, positionals, err := parseFlags(set, []string{"--verbose=false", "alice"})
+		if err != nil {
+			t.Fatalf("parseFlags returned error: %v", err)
+		}
+		if value.FieldByName("Verbose").Bool() {
+			t.Fatalf("Verbose = true, want false")
+		}
+		if strings.Join(positionals, ",") != "alice" {
+			t.Fatalf("positionals = %#v, want [alice]", positionals)
+		}
+	})
+
+	t.Run("space false", func(t *testing.T) {
+		value, positionals, err := parseFlags(set, []string{"--verbose", "false", "alice"})
+		if err != nil {
+			t.Fatalf("parseFlags returned error: %v", err)
+		}
+		if value.FieldByName("Verbose").Bool() {
+			t.Fatalf("Verbose = true, want false")
+		}
+		if strings.Join(positionals, ",") != "alice" {
+			t.Fatalf("positionals = %#v, want [alice]", positionals)
+		}
+	})
+}
+
+func TestParseFlagsErrors(t *testing.T) {
+	set, err := compileFlagSet(testCommandFlags{})
+	if err != nil {
+		t.Fatalf("compileFlagSet returned error: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{
+			name:    "unknown option",
+			args:    []string{"--missing"},
+			wantErr: "unknown option --missing",
+		},
+		{
+			name:    "missing value for string",
+			args:    []string{"--profile"},
+			wantErr: "missing value for option --profile",
+		},
+		{
+			name:    "invalid int value",
+			args:    []string{"--base", "abc"},
+			wantErr: "invalid value for option --base",
+		},
+		{
+			name:    "invalid bool value",
+			args:    []string{"--verbose=maybe"},
+			wantErr: "invalid value for option --verbose",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := parseFlags(set, tt.args)
+			if err == nil {
+				t.Fatalf("parseFlags returned nil error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("parseFlags error = %q, want substring %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestRunWithPopulatesComposedFlagsForGroupedCommand(t *testing.T) {
 	originalCommands := app.commands
 	originalGroups := app.groups

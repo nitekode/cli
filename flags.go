@@ -304,7 +304,15 @@ func parseFlags(set *flagSet, args []string) (reflect.Value, []string, error) {
 
 		if field.Bool {
 			if rawValue == "" {
-				rawValue = "true"
+				if i+1 < len(args) {
+					if _, err := strconv.ParseBool(args[i+1]); err == nil {
+						i++
+						rawValue = args[i]
+					}
+				}
+				if rawValue == "" {
+					rawValue = "true"
+				}
 			}
 		} else if rawValue == "" {
 			if i+1 >= len(args) {
