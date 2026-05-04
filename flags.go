@@ -249,9 +249,7 @@ func configureCommandFlags(cmd *command, parent *flagSet) error {
 	switch {
 	case cmd.flags == nil && cmd.handlerFlagsType != nil:
 		return fmt.Errorf("command %q handler declares flags but no flags are registered", cmd.name)
-	case cmd.flags != nil && cmd.handlerFlagsType == nil:
-		return fmt.Errorf("command %q handler must accept %s flags", cmd.name, cmd.flags.typ.Name())
-	case cmd.flags != nil && cmd.handlerFlagsType != cmd.flags.typ:
+	case cmd.flags != nil && cmd.handlerFlagsType != nil && cmd.handlerFlagsType != cmd.flags.typ:
 		return fmt.Errorf("command %q handler must accept %s flags", cmd.name, cmd.flags.typ.Name())
 	}
 

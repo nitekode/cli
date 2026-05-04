@@ -1,0 +1,4 @@
+Options:
+{{ $width := groupHelpCommandWidth . }}{{range .}}{{if .Description}}  {{padRight .Label $width}}  {{.Description}}
+{{else}}  {{.Label}}
+{{end}}{{end}}

@@ -1,0 +1,4 @@
+Arguments:
+{{range .}}{{if .Description}}  {{.Name}}  {{.Description}}{{if .Default}} (default={{.Default}}){{end}}
+{{else}}  {{.Name}}{{if .Default}} (default={{.Default}}){{end}}
+{{end}}{{end}}

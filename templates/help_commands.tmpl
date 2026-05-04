@@ -1,0 +1,8 @@
+Commands:
+{{ $width := .CommandWidth }}{{ $groupWidth := .GroupCommandWidth }}{{range .Commands}}{{if .Description}}  {{padRight .Label $width}}  {{.Description}}
+{{else}}  {{.Label}}
+{{end}}{{end}}{{range .Groups}}{{if .Description}}  {{padRight .Label $width}}  {{.Description}}
+{{else}}  {{.Label}}
+{{end}}{{range .Commands}}{{if .Description}}    {{padRight .Label $groupWidth}}  {{.Description}}
+{{else}}    {{.Label}}
+{{end}}{{end}}{{end}}

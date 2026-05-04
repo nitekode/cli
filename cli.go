@@ -13,6 +13,7 @@ import (
 var app = struct {
 	name        string
 	description string
+	executable  string
 
 	version string
 	commit  string
@@ -27,7 +28,8 @@ var app = struct {
 	groups     map[string]*group
 	middleware []MiddlewareFunc
 }{
-	name: filepath.Base(os.Args[0]),
+	name:       filepath.Base(os.Args[0]),
+	executable: filepath.Base(os.Args[0]),
 
 	version: "dev",
 	commit:  "unknown",
@@ -116,9 +118,6 @@ func Group(name string, description string, register func(GroupAdder), opts ...G
 	if strings.TrimSpace(description) == "" {
 		panic("cli: group description cannot be empty")
 	}
-	if isBuiltInCommandName(name) {
-		panic("cli: group name conflicts with built-in command " + strconv.Quote(name))
-	}
 	if _, exists := app.commands[name]; exists {
 		panic("cli: group name conflicts with existing command " + strconv.Quote(name))
 	}
@@ -160,6 +159,11 @@ func Run() {
 }
 
 func RunWith(args []string) error {
+	ensureInternalCommands()
+	if len(args) > 0 {
+		app.executable = filepath.Base(args[0])
+	}
+
 	if len(args) <= 1 {
 		if cmd, found := app.commands[""]; found {
 			return cmd.invoke(nil, append([]MiddlewareFunc(nil), app.middleware...)...)
@@ -172,13 +176,6 @@ func RunWith(args []string) error {
 	cmd, found := app.commands[commandName]
 	if found {
 		return cmd.invoke(args[2:], append(append([]MiddlewareFunc(nil), app.middleware...), cmd.middleware...)...)
-	}
-	if commandName == "help" {
-		return runHelp(args)
-	}
-	if commandName == "version" {
-		printVersion()
-		return nil
 	}
 
 	if group, found := app.groups[commandName]; found {
@@ -210,6 +207,65 @@ func printVersion() {
 	fmt.Fprintln(app.out, versionString())
 }
 
+func ensureInternalCommands() {
+	ensureInternalCommand("help {topic}", "Show help information.", helpHandler)
+	ensureInternalCommand("version", "Show version information.", versionHandler)
+}
+
+func ensureInternalCommand(sig string, description string, handler any) {
+	name := strings.Fields(sig)[0]
+	if _, exists := app.commands[name]; exists {
+		return
+	}
+	if _, exists := app.groups[name]; exists {
+		return
+	}
+
+	cmd, err := newCommand(sig, description, handler)
+	if err != nil {
+		panic("cli: " + err.Error())
+	}
+	if err := configureCommandFlags(&cmd, app.flags); err != nil {
+		panic("cli: " + err.Error())
+	}
+
+	app.commands[cmd.name] = cmd
+}
+
+func helpHandler(topic ...string) error {
+	switch len(topic) {
+	case 0:
+		fmt.Fprint(app.out, globalHelp(app.executable))
+		return nil
+	case 1:
+		name := topic[0]
+		if cmd, found := app.commands[name]; found {
+			fmt.Fprint(app.out, commandHelp(app.executable, cmd))
+			return nil
+		}
+		if group, found := app.groups[name]; found {
+			fmt.Fprint(app.out, groupHelp(app.executable, group))
+			return nil
+		}
+	case 2:
+		groupName := topic[0]
+		commandName := topic[1]
+		if group, found := app.groups[groupName]; found {
+			if cmd, found := group.commands[commandName]; found {
+				fmt.Fprint(app.out, commandHelp(app.executable, cmd))
+				return nil
+			}
+		}
+	}
+
+	return fmt.Errorf("unknown help topic %q", strings.Join(topic, " "))
+}
+
+func versionHandler() error {
+	printVersion()
+	return nil
+}
+
 func versionString() string {
 	var b strings.Builder
 
@@ -231,10 +287,6 @@ func versionString() string {
 }
 
 func hasNamedCommands() bool {
-	if hasAutoBuiltInCommands() {
-		return true
-	}
-
 	for name, cmd := range app.commands {
 		if name != "" && !cmd.hidden {
 			return true
@@ -242,17 +294,4 @@ func hasNamedCommands() bool {
 	}
 
 	return false
-}
-
-func hasAutoBuiltInCommands() bool {
-	return hasAutoBuiltInCommand("help") || hasAutoBuiltInCommand("version")
-}
-
-func hasAutoBuiltInCommand(name string) bool {
-	_, found := app.commands[name]
-	return !found
-}
-
-func isBuiltInCommandName(name string) bool {
-	return name == "help" || name == "version"
 }

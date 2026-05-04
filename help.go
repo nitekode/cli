@@ -58,60 +58,19 @@ type groupHelpData struct {
 	Commands    []helpCommandSummary
 }
 
+type helpCommandsSectionData struct {
+	CommandWidth      int
+	GroupCommandWidth int
+	Commands          []helpCommandSummary
+	Groups            []helpGroupSection
+}
+
 var helpTemplateFuncs = template.FuncMap{
 	"padRight": func(s string, width int) string {
 		if len(s) >= width {
 			return s
 		}
 		return s + strings.Repeat(" ", width-len(s))
-	},
-	"globalHelpCommandWidth": func(data globalHelpData) int {
-		column := 0
-		for _, command := range data.Commands {
-			if n := len("  ") + len(command.Label) + 2; n > column {
-				column = n
-			}
-		}
-		for _, group := range data.Groups {
-			if n := len("  ") + len(group.Label) + 2; n > column {
-				column = n
-			}
-			for _, command := range group.Commands {
-				if n := len("    ") + len(command.Label) + 2; n > column {
-					column = n
-				}
-			}
-		}
-
-		return column - len("  ") - 2
-	},
-	"globalHelpGroupCommandWidth": func(data globalHelpData) int {
-		width := 0
-		for _, group := range data.Groups {
-			for _, command := range group.Commands {
-				if n := len("    ") + len(command.Label); n > width {
-					width = n
-				}
-			}
-		}
-		column := 0
-		for _, command := range data.Commands {
-			if n := len("  ") + len(command.Label) + 2; n > column {
-				column = n
-			}
-		}
-		for _, group := range data.Groups {
-			if n := len("  ") + len(group.Label) + 2; n > column {
-				column = n
-			}
-			for _, command := range group.Commands {
-				if n := len("    ") + len(command.Label) + 2; n > column {
-					column = n
-				}
-			}
-		}
-
-		return column - len("    ") - 2
 	},
 	"groupHelpCommandWidth": func(commands []helpCommandSummary) int {
 		width := 0
@@ -124,23 +83,25 @@ var helpTemplateFuncs = template.FuncMap{
 	},
 }
 
-//go:embed templates/help_global.tmpl
-var globalHelpTemplateSource string
+//go:embed templates/help_usage.tmpl
+var usageTemplateSource string
 
-//go:embed templates/help_command.tmpl
-var commandHelpTemplateSource string
+//go:embed templates/help_arguments.tmpl
+var argumentsTemplateSource string
 
-//go:embed templates/help_group.tmpl
-var groupHelpTemplateSource string
+//go:embed templates/help_options.tmpl
+var optionsTemplateSource string
 
-var globalHelpTemplate = template.Must(template.New("globalHelp").Funcs(helpTemplateFuncs).Parse(
-	globalHelpTemplateSource))
+//go:embed templates/help_commands.tmpl
+var commandsTemplateSource string
 
-var commandHelpTemplate = template.Must(template.New("commandHelp").Funcs(helpTemplateFuncs).Parse(
-	commandHelpTemplateSource))
+var usageTemplate = template.Must(template.New("usage").Parse(usageTemplateSource))
 
-var groupHelpTemplate = template.Must(template.New("groupHelp").Funcs(helpTemplateFuncs).Parse(
-	groupHelpTemplateSource))
+var argumentsTemplate = template.Must(template.New("arguments").Parse(argumentsTemplateSource))
+
+var optionsTemplate = template.Must(template.New("options").Funcs(helpTemplateFuncs).Parse(optionsTemplateSource))
+
+var commandsTemplate = template.Must(template.New("commands").Funcs(helpTemplateFuncs).Parse(commandsTemplateSource))
 
 func printUsageAndExit() {
 	fmt.Fprint(app.out, globalHelp(filepath.Base(os.Args[0])))
@@ -148,6 +109,8 @@ func printUsageAndExit() {
 }
 
 func globalHelp(executable string) string {
+	ensureInternalCommands()
+
 	data := globalHelpData{
 		Description: app.description,
 		Usage:       make([]string, 0, 2),
@@ -203,7 +166,25 @@ func globalHelp(executable string) string {
 		data.Groups = append(data.Groups, section)
 	}
 
-	return renderHelpTemplate(globalHelpTemplate, data)
+	sections := make([]string, 0, 4)
+	if data.Description != "" {
+		sections = append(sections, data.Description)
+	}
+	sections = append(sections, renderHelpTemplate(usageTemplate, data.Usage))
+	if len(data.Options) > 0 {
+		sections = append(sections, renderHelpTemplate(optionsTemplate, data.Options))
+	}
+	if len(data.Commands) > 0 || len(data.Groups) > 0 {
+		commandWidth, groupCommandWidth := commandSectionWidths(data.Commands, data.Groups)
+		sections = append(sections, renderHelpTemplate(commandsTemplate, helpCommandsSectionData{
+			CommandWidth:      commandWidth,
+			GroupCommandWidth: groupCommandWidth,
+			Commands:          data.Commands,
+			Groups:            data.Groups,
+		}))
+	}
+
+	return joinHelpSections(sections)
 }
 
 func commandHelp(executable string, cmd command) string {
@@ -241,7 +222,19 @@ func commandHelp(executable string, cmd command) string {
 		data.Arguments = append(data.Arguments, item)
 	}
 
-	return renderHelpTemplate(commandHelpTemplate, data)
+	sections := make([]string, 0, 4)
+	if data.Description != "" {
+		sections = append(sections, data.Description)
+	}
+	sections = append(sections, renderHelpTemplate(usageTemplate, []string{data.Usage}))
+	if len(data.Arguments) > 0 {
+		sections = append(sections, renderHelpTemplate(argumentsTemplate, data.Arguments))
+	}
+	if len(data.Options) > 0 {
+		sections = append(sections, renderHelpTemplate(optionsTemplate, data.Options))
+	}
+
+	return joinHelpSections(sections)
 }
 
 func groupHelp(executable string, group *group) string {
@@ -275,7 +268,59 @@ func groupHelp(executable string, group *group) string {
 		})
 	}
 
-	return renderHelpTemplate(groupHelpTemplate, data)
+	sections := make([]string, 0, 4)
+	if data.Description != "" {
+		sections = append(sections, data.Description)
+	}
+	sections = append(sections, renderHelpTemplate(usageTemplate, []string{data.Usage}))
+	if len(data.Options) > 0 {
+		sections = append(sections, renderHelpTemplate(optionsTemplate, data.Options))
+	}
+	if len(data.Commands) > 0 {
+		commandWidth := 0
+		for _, command := range data.Commands {
+			if len(command.Label) > commandWidth {
+				commandWidth = len(command.Label)
+			}
+		}
+		sections = append(sections, renderHelpTemplate(commandsTemplate, helpCommandsSectionData{
+			CommandWidth:      commandWidth,
+			GroupCommandWidth: commandWidth,
+			Commands:          data.Commands,
+		}))
+	}
+
+	return joinHelpSections(sections)
+}
+
+func commandSectionWidths(commands []helpCommandSummary, groups []helpGroupSection) (int, int) {
+	column := 0
+	groupColumn := 0
+
+	for _, command := range commands {
+		if n := len("  ") + len(command.Label) + 2; n > column {
+			column = n
+		}
+	}
+	for _, group := range groups {
+		if n := len("  ") + len(group.Label) + 2; n > column {
+			column = n
+		}
+		for _, command := range group.Commands {
+			if n := len("    ") + len(command.Label) + 2; n > column {
+				column = n
+			}
+			if n := len(command.Label); n > groupColumn {
+				groupColumn = n
+			}
+		}
+	}
+
+	if groupColumn == 0 {
+		groupColumn = column - len("    ") - 2
+	}
+
+	return column - len("  ") - 2, groupColumn
 }
 
 func formatOptionLabel(field flagField) string {
@@ -305,55 +350,8 @@ func commandUsageWithOptions(executable string, cmd command) string {
 	return strings.Join(parts, " ")
 }
 
-func runHelp(args []string) error {
-	executable := filepath.Base(args[0])
-	switch len(args) {
-	case 2:
-		fmt.Fprint(app.out, globalHelp(executable))
-		return nil
-	case 3:
-		name := args[2]
-		if cmd, found := app.commands[name]; found {
-			fmt.Fprint(app.out, commandHelp(executable, cmd))
-			return nil
-		}
-		if group, found := app.groups[name]; found {
-			fmt.Fprint(app.out, groupHelp(executable, group))
-			return nil
-		}
-		if name == "help" {
-			fmt.Fprintf(app.out, "Usage:\n  %s help [command]\n", executable)
-			return nil
-		}
-		if name == "version" {
-			fmt.Fprintf(app.out, "Usage:\n  %s version\n", executable)
-			return nil
-		}
-	default:
-		groupName := args[2]
-		commandName := args[3]
-		if group, found := app.groups[groupName]; found {
-			if cmd, found := group.commands[commandName]; found {
-				fmt.Fprint(app.out, commandHelp(executable, cmd))
-				return nil
-			}
-		}
-	}
-
-	return fmt.Errorf("unknown help topic %q", strings.Join(args[2:], " "))
-}
-
 func commandNames() []string {
 	names := make([]string, 0, len(app.commands))
-	if hasAutoBuiltInCommands() {
-		if _, found := app.commands["help"]; !found {
-			names = append(names, "help")
-		}
-		if _, found := app.commands["version"]; !found {
-			names = append(names, "version")
-		}
-	}
-
 	for name := range app.commands {
 		if name == "" || app.commands[name].hidden {
 			continue
@@ -402,21 +400,26 @@ func renderHelpTemplate(tmpl *template.Template, data any) string {
 	if err := tmpl.Execute(&b, data); err != nil {
 		panic("cli: failed to render help template: " + err.Error())
 	}
-	return b.String()
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func joinHelpSections(sections []string) string {
+	filtered := make([]string, 0, len(sections))
+	for _, section := range sections {
+		if section == "" {
+			continue
+		}
+		filtered = append(filtered, section)
+	}
+
+	if len(filtered) == 0 {
+		return ""
+	}
+
+	return strings.Join(filtered, "\n\n") + "\n"
 }
 
 func commandDescription(name string) string {
-	switch name {
-	case "help":
-		if _, found := app.commands["help"]; !found {
-			return "Show help information."
-		}
-	case "version":
-		if _, found := app.commands["version"]; !found {
-			return "Show version information."
-		}
-	}
-
 	cmd, found := app.commands[name]
 	if !found {
 		return ""

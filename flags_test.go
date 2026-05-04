@@ -199,7 +199,7 @@ func TestRunWithPopulatesComposedFlagsForGroupedCommand(t *testing.T) {
 	}
 }
 
-func TestGlobalFlagsRequireHandlerParameter(t *testing.T) {
+func TestGlobalFlagsCanBeIgnoredByHandler(t *testing.T) {
 	originalCommands := app.commands
 	originalGroups := app.groups
 	originalFlags := app.flags
@@ -213,14 +213,19 @@ func TestGlobalFlagsRequireHandlerParameter(t *testing.T) {
 	}()
 
 	GlobalFlags(testGlobalFlags{})
+	var gotName string
+	Command("greet {name}", "Greet someone.", func(name string) error {
+		gotName = name
+		return nil
+	})
 
-	defer func() {
-		if recover() == nil {
-			t.Fatal("Command did not panic")
-		}
-	}()
+	if err := RunWith([]string{"test", "greet", "--verbose", "--profile", "prod", "alice"}); err != nil {
+		t.Fatalf("RunWith returned error: %v", err)
+	}
 
-	Command("greet {name}", "Greet someone.", func(name string) error { return nil })
+	if gotName != "alice" {
+		t.Fatalf("name = %q, want %q", gotName, "alice")
+	}
 }
 
 func TestGroupFlagsMustEmbedGlobalFlags(t *testing.T) {
