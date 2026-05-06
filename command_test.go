@@ -169,7 +169,7 @@ func TestInvokeCommand(t *testing.T) {
 		}
 
 		err := cmd.invoke(nil)
-		if err == nil || !strings.Contains(err.Error(), `missing required argument "name"`) {
+		if err == nil || !strings.Contains(err.Error(), "missing arguments: got 0, want at least 1") {
 			t.Fatalf("invoke error = %v", err)
 		}
 	})

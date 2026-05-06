@@ -10,6 +10,7 @@ import (
 
 type flagField struct {
 	Name        string
+	Short       string
 	Description string
 	Default     string
 	Index       []int
@@ -78,6 +79,14 @@ func compileFlagSet(flags any) (*flagSet, error) {
 			return nil, fmt.Errorf("duplicate flag %q", field.Name)
 		}
 		seen[field.Name] = struct{}{}
+
+		if field.Short == "" {
+			continue
+		}
+		if _, found := seen[field.Short]; found {
+			return nil, fmt.Errorf("duplicate flag %q", field.Short)
+		}
+		seen[field.Short] = struct{}{}
 	}
 
 	return &flagSet{typ: typ, fields: fields}, nil
@@ -125,6 +134,12 @@ func collectFlagFields(typ reflect.Type, path []int) ([]flagField, error) {
 		if err := validateFlagName(name); err != nil {
 			return nil, fmt.Errorf("flag field %q: %w", field.Name, err)
 		}
+		short := field.Tag.Get("short")
+		if short != "" {
+			if err := validateFlagShort(short); err != nil {
+				return nil, fmt.Errorf("flag field %q: %w", field.Name, err)
+			}
+		}
 
 		defaultValue := field.Tag.Get("default")
 		if defaultValue != "" {
@@ -135,6 +150,7 @@ func collectFlagFields(typ reflect.Type, path []int) ([]flagField, error) {
 
 		fields = append(fields, flagField{
 			Name:        name,
+			Short:       short,
 			Description: field.Tag.Get("desc"),
 			Default:     defaultValue,
 			Index:       index,
@@ -144,6 +160,17 @@ func collectFlagFields(typ reflect.Type, path []int) ([]flagField, error) {
 	}
 
 	return fields, nil
+}
+
+func validateFlagShort(short string) error {
+	if len(short) != 1 {
+		return fmt.Errorf("short flag %q must be a single character", short)
+	}
+	r := rune(short[0])
+	if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+		return fmt.Errorf("invalid short flag %q", short)
+	}
+	return nil
 }
 
 func fieldNameToFlag(name string) string {
@@ -256,9 +283,35 @@ func configureCommandFlags(cmd *command, parent *flagSet) error {
 	return nil
 }
 
-func parseFlags(set *flagSet, args []string) (reflect.Value, []string, error) {
+func parseFlags(set *flagSet, expectedPositionals []commandArgument, args []string) (reflect.Value, []string, error) {
+	booleanFlags := make([]string, 0)
 	if set == nil {
-		return reflect.Value{}, args, nil
+		parsed, err := parseCommandLine(args, booleanFlags)
+		if err != nil {
+			return reflect.Value{}, nil, err
+		}
+		if err := parsed.validate(nil, expectedPositionals); err != nil {
+			return reflect.Value{}, nil, err
+		}
+		return reflect.Value{}, parsed.positionals, nil
+	}
+
+	for _, field := range set.fields {
+		if !field.Bool {
+			continue
+		}
+		booleanFlags = append(booleanFlags, field.Name)
+		if field.Short != "" {
+			booleanFlags = append(booleanFlags, field.Short)
+		}
+	}
+
+	parsed, err := parseCommandLine(args, booleanFlags)
+	if err != nil {
+		return reflect.Value{}, nil, err
+	}
+	if err := parsed.validate(set, expectedPositionals); err != nil {
+		return reflect.Value{}, nil, err
 	}
 
 	value := reflect.New(set.typ).Elem()
@@ -272,61 +325,27 @@ func parseFlags(set *flagSet, args []string) (reflect.Value, []string, error) {
 		}
 	}
 
-	flagByName := make(map[string]flagField, len(set.fields))
 	for _, field := range set.fields {
-		flagByName[field.Name] = field
-	}
-
-	positionals := make([]string, 0, len(args))
-	for i := 0; i < len(args); i++ {
-		token := args[i]
-		if token == "--" {
-			positionals = append(positionals, args[i+1:]...)
-			break
-		}
-		if !strings.HasPrefix(token, "--") {
-			positionals = append(positionals, token)
+		if field.Bool {
+			rawValue, found := parsed.flags[field.Name]
+			if !found {
+				continue
+			}
+			target := value.FieldByIndex(field.Index)
+			target.SetBool(rawValue)
 			continue
 		}
 
-		name := strings.TrimPrefix(token, "--")
-		rawValue := ""
-		if strings.Contains(name, "=") {
-			name, rawValue, _ = strings.Cut(name, "=")
-		}
-
-		field, found := flagByName[name]
-		if !found {
-			return reflect.Value{}, nil, fmt.Errorf("unknown option --%s", name)
-		}
-
-		if field.Bool {
-			if rawValue == "" {
-				if i+1 < len(args) {
-					if _, err := strconv.ParseBool(args[i+1]); err == nil {
-						i++
-						rawValue = args[i]
-					}
-				}
-				if rawValue == "" {
-					rawValue = "true"
-				}
+		values := parsed.options[field.Name]
+		for _, rawValue := range values {
+			target := value.FieldByIndex(field.Index)
+			if err := setFlagValue(target, field, rawValue); err != nil {
+				return reflect.Value{}, nil, fmt.Errorf("invalid value for option --%s: %w", field.Name, err)
 			}
-		} else if rawValue == "" {
-			if i+1 >= len(args) {
-				return reflect.Value{}, nil, fmt.Errorf("missing value for option --%s", name)
-			}
-			i++
-			rawValue = args[i]
-		}
-
-		target := value.FieldByIndex(field.Index)
-		if err := setFlagValue(target, field, rawValue); err != nil {
-			return reflect.Value{}, nil, fmt.Errorf("invalid value for option --%s: %w", name, err)
 		}
 	}
 
-	return value, positionals, nil
+	return value, parsed.positionals, nil
 }
 
 func setFlagValue(target reflect.Value, field flagField, raw string) error {

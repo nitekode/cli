@@ -66,7 +66,7 @@ func TestParseFlagsBoolForms(t *testing.T) {
 	}
 
 	t.Run("implicit true", func(t *testing.T) {
-		value, positionals, err := parseFlags(set, []string{"--verbose", "alice"})
+		value, positionals, err := parseFlags(set, []commandArgument{{Name: "name", Kind: requiredArgument}}, []string{"--verbose", "alice"})
 		if err != nil {
 			t.Fatalf("parseFlags returned error: %v", err)
 		}
@@ -79,7 +79,7 @@ func TestParseFlagsBoolForms(t *testing.T) {
 	})
 
 	t.Run("equals false", func(t *testing.T) {
-		value, positionals, err := parseFlags(set, []string{"--verbose=false", "alice"})
+		value, positionals, err := parseFlags(set, []commandArgument{{Name: "name", Kind: requiredArgument}}, []string{"--verbose=false", "alice"})
 		if err != nil {
 			t.Fatalf("parseFlags returned error: %v", err)
 		}
@@ -91,16 +91,16 @@ func TestParseFlagsBoolForms(t *testing.T) {
 		}
 	})
 
-	t.Run("space false", func(t *testing.T) {
-		value, positionals, err := parseFlags(set, []string{"--verbose", "false", "alice"})
+	t.Run("space false remains positional", func(t *testing.T) {
+		value, positionals, err := parseFlags(set, []commandArgument{{Name: "name", Kind: requiredArgument}, {Name: "other", Kind: requiredArgument}}, []string{"--verbose", "false", "alice"})
 		if err != nil {
 			t.Fatalf("parseFlags returned error: %v", err)
 		}
-		if value.FieldByName("Verbose").Bool() {
-			t.Fatalf("Verbose = true, want false")
+		if !value.FieldByName("Verbose").Bool() {
+			t.Fatalf("Verbose = false, want true")
 		}
-		if strings.Join(positionals, ",") != "alice" {
-			t.Fatalf("positionals = %#v, want [alice]", positionals)
+		if strings.Join(positionals, ",") != "false,alice" {
+			t.Fatalf("positionals = %#v, want [false alice]", positionals)
 		}
 	})
 }
@@ -118,13 +118,13 @@ func TestParseFlagsErrors(t *testing.T) {
 	}{
 		{
 			name:    "unknown option",
-			args:    []string{"--missing"},
-			wantErr: "unknown option --missing",
+			args:    []string{"--missing=value"},
+			wantErr: `unknown option "missing"`,
 		},
 		{
 			name:    "missing value for string",
 			args:    []string{"--profile"},
-			wantErr: "missing value for option --profile",
+			wantErr: `option "profile" expects a value`,
 		},
 		{
 			name:    "invalid int value",
@@ -134,13 +134,13 @@ func TestParseFlagsErrors(t *testing.T) {
 		{
 			name:    "invalid bool value",
 			args:    []string{"--verbose=maybe"},
-			wantErr: "invalid value for option --verbose",
+			wantErr: `flag "verbose" expects true or false`,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, _, err := parseFlags(set, tt.args)
+			_, _, err := parseFlags(set, nil, tt.args)
 			if err == nil {
 				t.Fatalf("parseFlags returned nil error")
 			}

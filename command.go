@@ -153,7 +153,7 @@ func compileCommandArgument(sigArg argument, paramType reflect.Type, variadic bo
 
 func (cmd command) invoke(providedArgs []string, middleware ...MiddlewareFunc) error {
 	next := func() error {
-		flagsValue, positionals, err := parseFlags(cmd.flags, providedArgs)
+		flagsValue, positionals, err := parseFlags(cmd.flags, cmd.arguments, providedArgs)
 		if err != nil {
 			return err
 		}
