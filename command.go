@@ -28,11 +28,11 @@ type command struct {
 	name             string
 	arguments        []commandArgument
 	flags            *flagSet
+	group            *group
 	handlerType      reflect.Type
 	handler          reflect.Value
 	handlerFlagsType reflect.Type
 	hidden           bool
-	localFlags       *flagSet
 	middleware       []MiddlewareFunc
 }
 
@@ -153,7 +153,7 @@ func compileCommandArgument(sigArg argument, paramType reflect.Type, variadic bo
 
 func (cmd command) invoke(providedArgs []string, middleware ...MiddlewareFunc) error {
 	next := func() error {
-		flagsValue, positionals, err := parseFlags(cmd.flags, cmd.arguments, providedArgs)
+		flagsValue, positionals, err := parseFlags(cmd.effectiveFlags(), cmd.arguments, providedArgs)
 		if err != nil {
 			return err
 		}

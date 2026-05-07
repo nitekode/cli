@@ -188,15 +188,16 @@ func globalHelp(executable string) string {
 }
 
 func commandHelp(executable string, cmd command) string {
+	flags := cmd.effectiveFlags()
 	data := commandHelpData{
 		Description: cmd.description,
 		Usage:       commandUsage(executable, cmd),
 		Options:     make([]helpCommandSummary, 0),
 		Arguments:   make([]commandHelpArgument, 0, len(cmd.arguments)),
 	}
-	if cmd.flags != nil && len(cmd.flags.fields) > 0 {
+	if flags != nil && len(flags.fields) > 0 {
 		data.Usage = commandUsageWithOptions(executable, cmd)
-		for _, field := range cmd.flags.fields {
+		for _, field := range flags.fields {
 			desc := field.Description
 			if field.Default != "" {
 				if desc != "" {
@@ -238,15 +239,16 @@ func commandHelp(executable string, cmd command) string {
 }
 
 func groupHelp(executable string, group *group) string {
+	flags := group.effectiveFlags()
 	data := groupHelpData{
 		Description: group.description,
 		Usage:       executable + " " + group.name + " {command} [arguments]",
 		Options:     make([]helpCommandSummary, 0),
 		Commands:    make([]helpCommandSummary, 0, len(group.commands)),
 	}
-	if group.flags != nil && len(group.flags.fields) > 0 {
+	if flags != nil && len(flags.fields) > 0 {
 		data.Usage = executable + " " + group.name + " {command} [options] [arguments]"
-		for _, field := range group.flags.fields {
+		for _, field := range flags.fields {
 			desc := field.Description
 			if field.Default != "" {
 				if desc != "" {

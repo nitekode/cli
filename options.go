@@ -77,9 +77,9 @@ type flagsOption struct {
 }
 
 func (o flagsOption) applyCommand(cmd *command) {
-	cmd.localFlags = o.flags
+	cmd.flags = o.flags
 }
 
 func (o flagsOption) applyGroup(group *group) {
-	group.localFlags = o.flags
+	group.flags = o.flags
 }

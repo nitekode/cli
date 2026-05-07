@@ -6,7 +6,6 @@ type group struct {
 	commands    map[string]command
 	flags       *flagSet
 	hidden      bool
-	localFlags  *flagSet
 	middleware  []MiddlewareFunc
 }
 
@@ -26,8 +25,9 @@ func (g groupAdder) Command(sig string, description string, handler any, opts ..
 		panic("cli: duplicate command " + cmd.name + " in group " + g.group.name)
 	}
 
+	cmd.group = g.group
 	cmd.name = g.group.name + " " + cmd.name
-	if err := configureCommandFlags(&cmd, g.group.flags); err != nil {
+	if err := validateCommandFlags(&cmd); err != nil {
 		panic("cli: " + err.Error())
 	}
 	g.group.commands[commandLeafName(cmd.name)] = cmd

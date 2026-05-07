@@ -32,14 +32,20 @@ func GlobalFlags(flags any) {
 	app.flags = set
 
 	for _, group := range app.groups {
-		if err := configureGroupFlags(group); err != nil {
+		if err := validateGroupFlags(group); err != nil {
 			panic("cli: " + err.Error())
+		}
+		for name, cmd := range group.commands {
+			if err := validateCommandFlags(&cmd); err != nil {
+				panic("cli: " + err.Error())
+			}
+			group.commands[name] = cmd
 		}
 	}
 
 	for name, cmd := range app.commands {
 		if name == "" || !strings.Contains(name, " ") {
-			if err := configureCommandFlags(&cmd, app.flags); err != nil {
+			if err := validateCommandFlags(&cmd); err != nil {
 				panic("cli: " + err.Error())
 			}
 			app.commands[name] = cmd
@@ -243,44 +249,52 @@ func hasEmbeddedFlagSet(typ reflect.Type, parent reflect.Type) bool {
 	return false
 }
 
-func configureGroupFlags(group *group) error {
-	group.flags = app.flags
-
-	if group.localFlags != nil {
-		if app.flags != nil && !hasEmbeddedFlagSet(group.localFlags.typ, app.flags.typ) {
-			return fmt.Errorf("group %q flags must embed %s", group.name, app.flags.typ.Name())
-		}
-		group.flags = group.localFlags
-	}
-
-	for name, cmd := range group.commands {
-		if err := configureCommandFlags(&cmd, group.flags); err != nil {
-			return err
-		}
-		group.commands[name] = cmd
+func validateGroupFlags(group *group) error {
+	if group.flags != nil && app.flags != nil && !hasEmbeddedFlagSet(group.flags.typ, app.flags.typ) {
+		return fmt.Errorf("group %q flags must embed %s", group.name, app.flags.typ.Name())
 	}
 
 	return nil
 }
 
-func configureCommandFlags(cmd *command, parent *flagSet) error {
-	cmd.flags = parent
-
-	if cmd.localFlags != nil {
-		if parent != nil && !hasEmbeddedFlagSet(cmd.localFlags.typ, parent.typ) {
-			return fmt.Errorf("command %q flags must embed %s", cmd.name, parent.typ.Name())
-		}
-		cmd.flags = cmd.localFlags
+func validateCommandFlags(cmd *command) error {
+	parent := cmd.parentFlags()
+	if cmd.flags != nil && parent != nil && !hasEmbeddedFlagSet(cmd.flags.typ, parent.typ) {
+		return fmt.Errorf("command %q flags must embed %s", cmd.name, parent.typ.Name())
 	}
-
+	effective := cmd.effectiveFlags()
 	switch {
-	case cmd.flags == nil && cmd.handlerFlagsType != nil:
+	case effective == nil && cmd.handlerFlagsType != nil:
 		return fmt.Errorf("command %q handler declares flags but no flags are registered", cmd.name)
-	case cmd.flags != nil && cmd.handlerFlagsType != nil && cmd.handlerFlagsType != cmd.flags.typ:
-		return fmt.Errorf("command %q handler must accept %s flags", cmd.name, cmd.flags.typ.Name())
+	case effective != nil && cmd.handlerFlagsType != nil && cmd.handlerFlagsType != effective.typ:
+		return fmt.Errorf("command %q handler must accept %s flags", cmd.name, effective.typ.Name())
 	}
 
 	return nil
+}
+
+func (group *group) effectiveFlags() *flagSet {
+	if group == nil {
+		return nil
+	}
+	if group.flags != nil {
+		return group.flags
+	}
+	return app.flags
+}
+
+func (cmd command) parentFlags() *flagSet {
+	if cmd.group != nil {
+		return cmd.group.effectiveFlags()
+	}
+	return app.flags
+}
+
+func (cmd command) effectiveFlags() *flagSet {
+	if cmd.flags != nil {
+		return cmd.flags
+	}
+	return cmd.parentFlags()
 }
 
 func parseFlags(set *flagSet, expectedPositionals []commandArgument, args []string) (reflect.Value, []string, error) {

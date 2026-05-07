@@ -104,7 +104,7 @@ func Command(sig string, description string, handler any, opts ...CommandOption)
 	if _, exists := app.groups[cmd.name]; cmd.name != "" && exists {
 		panic("cli: command name conflicts with existing group " + strconv.Quote(cmd.name))
 	}
-	if err := configureCommandFlags(&cmd, app.flags); err != nil {
+	if err := validateCommandFlags(&cmd); err != nil {
 		panic("cli: " + err.Error())
 	}
 
@@ -133,7 +133,7 @@ func Group(name string, description string, register func(GroupAdder), opts ...G
 	for _, opt := range opts {
 		opt.applyGroup(g)
 	}
-	if err := configureGroupFlags(g); err != nil {
+	if err := validateGroupFlags(g); err != nil {
 		panic("cli: " + err.Error())
 	}
 	app.groups[name] = g
@@ -225,7 +225,7 @@ func ensureInternalCommand(sig string, description string, handler any) {
 	if err != nil {
 		panic("cli: " + err.Error())
 	}
-	if err := configureCommandFlags(&cmd, app.flags); err != nil {
+	if err := validateCommandFlags(&cmd); err != nil {
 		panic("cli: " + err.Error())
 	}
 
