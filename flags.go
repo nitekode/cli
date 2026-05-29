@@ -1,11 +1,14 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/nitekode/reflector"
 )
 
 type flagField struct {
@@ -13,18 +16,17 @@ type flagField struct {
 	Short       string
 	Description string
 	Default     string
-	Index       []int
-	Type        reflect.Type
 	Bool        bool
 }
 
 type flagSet struct {
 	typ    reflect.Type
 	fields []flagField
+	fill   func(map[string]string) (any, error)
 }
 
-func GlobalFlags(flags any) {
-	set, err := compileFlagSet(flags)
+func GlobalFlags[T any]() {
+	set, err := compileFlagSet[T]()
 	if err != nil {
 		panic("cli: " + err.Error())
 	}
@@ -53,8 +55,8 @@ func GlobalFlags(flags any) {
 	}
 }
 
-func Flags(flags any) flagsOption {
-	set, err := compileFlagSet(flags)
+func Flags[T any]() flagsOption {
+	set, err := compileFlagSet[T]()
 	if err != nil {
 		panic("cli: " + err.Error())
 	}
@@ -62,21 +64,52 @@ func Flags(flags any) flagsOption {
 	return flagsOption{flags: set}
 }
 
-func compileFlagSet(flags any) (*flagSet, error) {
-	typ := reflect.TypeOf(flags)
-	if typ == nil {
-		return nil, fmt.Errorf("flags must be a struct")
-	}
-	if typ.Kind() == reflect.Pointer {
-		typ = typ.Elem()
-	}
+func compileFlagSet[T any]() (*flagSet, error) {
+	var zero T
+	typ := reflect.TypeFor[T]()
 	if typ.Kind() != reflect.Struct {
 		return nil, fmt.Errorf("flags must be a struct")
 	}
 
-	fields, err := collectFlagFields(typ, nil)
+	si, err := reflector.InspectStruct(zero)
 	if err != nil {
 		return nil, err
+	}
+	if _, err := reflector.NewStruct[T](reflector.WithDefaultTag("default")); err != nil {
+		return nil, err
+	}
+
+	fields := make([]flagField, 0, len(si.Fields))
+	for _, field := range si.Fields {
+		flagType := field.Type
+		switch flagType.Kind() {
+		case reflect.Bool, reflect.String, reflect.Int:
+		default:
+			return nil, fmt.Errorf("flag field %q must be bool, string, or int", field.Name)
+		}
+
+		name, short, err := parseFlagTag(field.Tags["flag"])
+		if err != nil {
+			return nil, fmt.Errorf("flag field %q: %w", field.Name, err)
+		}
+		if err := validateFlagName(name); err != nil {
+			return nil, fmt.Errorf("flag field %q: %w", field.Name, err)
+		}
+		if short != "" {
+			if err := validateFlagShort(short); err != nil {
+				return nil, fmt.Errorf("flag field %q: %w", field.Name, err)
+			}
+		}
+
+		defaultValue := field.Tags["default"]
+
+		fields = append(fields, flagField{
+			Name:        name,
+			Short:       short,
+			Description: field.Tags["desc"],
+			Default:     defaultValue,
+			Bool:        flagType.Kind() == reflect.Bool,
+		})
 	}
 
 	seen := make(map[string]struct{}, len(fields))
@@ -95,77 +128,45 @@ func compileFlagSet(flags any) (*flagSet, error) {
 		seen[field.Short] = struct{}{}
 	}
 
-	return &flagSet{typ: typ, fields: fields}, nil
-}
-
-func collectFlagFields(typ reflect.Type, path []int) ([]flagField, error) {
-	fields := make([]flagField, 0, typ.NumField())
-
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-		index := append(append([]int(nil), path...), i)
-
-		if field.Anonymous {
-			embeddedType := field.Type
-			if embeddedType.Kind() == reflect.Pointer {
-				embeddedType = embeddedType.Elem()
-			}
-			if embeddedType.Kind() != reflect.Struct {
-				return nil, fmt.Errorf("embedded field %q must be a struct", field.Name)
-			}
-
-			embeddedFields, err := collectFlagFields(embeddedType, index)
+	return &flagSet{
+		typ:    typ,
+		fields: fields,
+		fill: func(input map[string]string) (any, error) {
+			value, err := reflector.NewStruct[T](reflector.WithDefaultTag("default"))
 			if err != nil {
 				return nil, err
 			}
-			fields = append(fields, embeddedFields...)
-			continue
-		}
-
-		if field.PkgPath != "" {
-			continue
-		}
-
-		flagType := field.Type
-		switch flagType.Kind() {
-		case reflect.Bool, reflect.String, reflect.Int:
-		default:
-			return nil, fmt.Errorf("flag field %q must be bool, string, or int", field.Name)
-		}
-
-		name := field.Tag.Get("cli")
-		if name == "" {
-			name = fieldNameToFlag(field.Name)
-		}
-		if err := validateFlagName(name); err != nil {
-			return nil, fmt.Errorf("flag field %q: %w", field.Name, err)
-		}
-		short := field.Tag.Get("short")
-		if short != "" {
-			if err := validateFlagShort(short); err != nil {
-				return nil, fmt.Errorf("flag field %q: %w", field.Name, err)
+			if err := reflector.FillFromMap(&value, input, reflector.WithNameTag("flag")); err != nil {
+				return nil, err
 			}
-		}
+			return value, nil
+		},
+	}, nil
+}
 
-		defaultValue := field.Tag.Get("default")
-		if defaultValue != "" {
-			if err := validateFlagDefault(flagType, defaultValue); err != nil {
-				return nil, fmt.Errorf("flag field %q: %w", field.Name, err)
-			}
-		}
-
-		fields = append(fields, flagField{
-			Name:        name,
-			Short:       short,
-			Description: field.Tag.Get("desc"),
-			Default:     defaultValue,
-			Index:       index,
-			Type:        flagType,
-			Bool:        flagType.Kind() == reflect.Bool,
-		})
+func parseFlagTag(raw string) (name string, short string, err error) {
+	if raw == "" {
+		return "", "", fmt.Errorf(`missing required tag "flag"`)
 	}
 
-	return fields, nil
+	parts := strings.Split(raw, ",")
+	if len(parts) == 0 || len(parts) > 2 {
+		return "", "", fmt.Errorf(`invalid flag tag %q`, raw)
+	}
+
+	name = strings.TrimSpace(parts[0])
+	if name == "" {
+		return "", "", fmt.Errorf("flag tag must include a long name")
+	}
+
+	if len(parts) == 2 {
+		short = strings.TrimSpace(parts[1])
+		if short == "" {
+			return "", "", fmt.Errorf("flag tag short name cannot be empty")
+		}
+	}
+
+	return name, short, nil
 }
 
 func validateFlagShort(short string) error {
@@ -177,21 +178,6 @@ func validateFlagShort(short string) error {
 		return fmt.Errorf("invalid short flag %q", short)
 	}
 	return nil
-}
-
-func fieldNameToFlag(name string) string {
-	var b strings.Builder
-	for i, r := range name {
-		if unicode.IsUpper(r) {
-			if i > 0 {
-				b.WriteByte('-')
-			}
-			b.WriteRune(unicode.ToLower(r))
-			continue
-		}
-		b.WriteRune(r)
-	}
-	return b.String()
 }
 
 func validateFlagName(name string) error {
@@ -210,43 +196,13 @@ func validateFlagName(name string) error {
 	return nil
 }
 
-func validateFlagDefault(typ reflect.Type, value string) error {
-	switch typ.Kind() {
-	case reflect.Bool:
-		_, err := strconv.ParseBool(value)
-		if err != nil {
-			return fmt.Errorf("invalid bool default %q", value)
-		}
-	case reflect.Int:
-		_, err := strconv.Atoi(value)
-		if err != nil {
-			return fmt.Errorf("invalid int default %q", value)
-		}
-	case reflect.String:
-	default:
-		return fmt.Errorf("unsupported flag type %s", typ)
-	}
-
-	return nil
-}
-
 func hasEmbeddedFlagSet(typ reflect.Type, parent reflect.Type) bool {
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-		if !field.Anonymous {
-			continue
-		}
-
-		fieldType := field.Type
-		if fieldType.Kind() == reflect.Pointer {
-			fieldType = fieldType.Elem()
-		}
-		if fieldType == parent {
-			return true
-		}
+	si, err := reflector.InspectStruct(reflect.Zero(typ).Interface())
+	if err != nil {
+		return false
 	}
 
-	return false
+	return si.Embeds(parent)
 }
 
 func validateGroupFlags(group *group) error {
@@ -297,17 +253,17 @@ func (cmd command) effectiveFlags() *flagSet {
 	return cmd.parentFlags()
 }
 
-func parseFlags(set *flagSet, expectedPositionals []commandArgument, args []string) (reflect.Value, []string, error) {
+func parseFlags(set *flagSet, expectedPositionals []commandArgument, args []string) (any, []string, error) {
 	booleanFlags := make([]string, 0)
 	if set == nil {
 		parsed, err := parseCommandLine(args, booleanFlags)
 		if err != nil {
-			return reflect.Value{}, nil, err
+			return nil, nil, err
 		}
 		if err := parsed.validate(nil, expectedPositionals); err != nil {
-			return reflect.Value{}, nil, err
+			return nil, nil, err
 		}
-		return reflect.Value{}, parsed.positionals, nil
+		return nil, parsed.positionals, nil
 	}
 
 	for _, field := range set.fields {
@@ -322,22 +278,13 @@ func parseFlags(set *flagSet, expectedPositionals []commandArgument, args []stri
 
 	parsed, err := parseCommandLine(args, booleanFlags)
 	if err != nil {
-		return reflect.Value{}, nil, err
+		return nil, nil, err
 	}
 	if err := parsed.validate(set, expectedPositionals); err != nil {
-		return reflect.Value{}, nil, err
+		return nil, nil, err
 	}
 
-	value := reflect.New(set.typ).Elem()
-	for _, field := range set.fields {
-		if field.Default == "" {
-			continue
-		}
-		target := value.FieldByIndex(field.Index)
-		if err := setFlagValue(target, field, field.Default); err != nil {
-			return reflect.Value{}, nil, err
-		}
-	}
+	input := make(map[string]string, len(parsed.options)+len(parsed.flags))
 
 	for _, field := range set.fields {
 		if field.Bool {
@@ -345,42 +292,24 @@ func parseFlags(set *flagSet, expectedPositionals []commandArgument, args []stri
 			if !found {
 				continue
 			}
-			target := value.FieldByIndex(field.Index)
-			target.SetBool(rawValue)
+			input[field.Name] = strconv.FormatBool(rawValue)
 			continue
 		}
 
 		values := parsed.options[field.Name]
 		for _, rawValue := range values {
-			target := value.FieldByIndex(field.Index)
-			if err := setFlagValue(target, field, rawValue); err != nil {
-				return reflect.Value{}, nil, fmt.Errorf("invalid value for option --%s: %w", field.Name, err)
-			}
+			input[field.Name] = rawValue
 		}
+	}
+
+	value, err := set.fill(input)
+	if err != nil {
+		var fieldErr *reflector.FieldError
+		if errors.As(err, &fieldErr) {
+			return nil, nil, fmt.Errorf("invalid value for option --%s: %w", fieldErr.Field, fieldErr.Err)
+		}
+		return nil, nil, err
 	}
 
 	return value, parsed.positionals, nil
-}
-
-func setFlagValue(target reflect.Value, field flagField, raw string) error {
-	switch field.Type.Kind() {
-	case reflect.Bool:
-		value, err := strconv.ParseBool(raw)
-		if err != nil {
-			return err
-		}
-		target.SetBool(value)
-	case reflect.Int:
-		value, err := strconv.Atoi(raw)
-		if err != nil {
-			return err
-		}
-		target.SetInt(int64(value))
-	case reflect.String:
-		target.SetString(raw)
-	default:
-		return fmt.Errorf("unsupported flag type %s", field.Type)
-	}
-
-	return nil
 }

@@ -8,18 +8,18 @@ import (
 )
 
 type testGlobalFlags struct {
-	Verbose bool   `desc:"verbose output"`
-	Profile string `default:"dev" desc:"profile name"`
+	Verbose bool   `flag:"verbose,v" desc:"verbose output"`
+	Profile string `flag:"profile" default:"dev" desc:"profile name"`
 }
 
 type testGroupFlags struct {
 	testGlobalFlags
-	Base int `default:"10" desc:"number base"`
+	Base int `flag:"base,b" default:"10" desc:"number base"`
 }
 
 type testCommandFlags struct {
 	testGroupFlags
-	Round bool `desc:"round the result"`
+	Round bool `flag:"round,r" desc:"round the result"`
 }
 
 func resetFlagsTestApp(t *testing.T) {
@@ -55,7 +55,7 @@ func TestRunWithPopulatesGlobalFlags(t *testing.T) {
 	var gotFlags testGlobalFlags
 	var gotName string
 
-	GlobalFlags(testGlobalFlags{})
+	GlobalFlags[testGlobalFlags]()
 	Command("greet {name}", "Greet someone.", func(flags testGlobalFlags, name string) error {
 		gotFlags = flags
 		gotName = name
@@ -78,7 +78,7 @@ func TestRunWithPopulatesGlobalFlags(t *testing.T) {
 }
 
 func TestParseFlagsBoolForms(t *testing.T) {
-	set, err := compileFlagSet(testGlobalFlags{})
+	set, err := compileFlagSet[testGlobalFlags]()
 	if err != nil {
 		t.Fatalf("compileFlagSet returned error: %v", err)
 	}
@@ -88,7 +88,8 @@ func TestParseFlagsBoolForms(t *testing.T) {
 		if err != nil {
 			t.Fatalf("parseFlags returned error: %v", err)
 		}
-		if !value.FieldByName("Verbose").Bool() {
+		flags := value.(testGlobalFlags)
+		if !flags.Verbose {
 			t.Fatalf("Verbose = false, want true")
 		}
 		if strings.Join(positionals, ",") != "alice" {
@@ -101,7 +102,8 @@ func TestParseFlagsBoolForms(t *testing.T) {
 		if err != nil {
 			t.Fatalf("parseFlags returned error: %v", err)
 		}
-		if value.FieldByName("Verbose").Bool() {
+		flags := value.(testGlobalFlags)
+		if flags.Verbose {
 			t.Fatalf("Verbose = true, want false")
 		}
 		if strings.Join(positionals, ",") != "alice" {
@@ -114,7 +116,8 @@ func TestParseFlagsBoolForms(t *testing.T) {
 		if err != nil {
 			t.Fatalf("parseFlags returned error: %v", err)
 		}
-		if !value.FieldByName("Verbose").Bool() {
+		flags := value.(testGlobalFlags)
+		if !flags.Verbose {
 			t.Fatalf("Verbose = false, want true")
 		}
 		if strings.Join(positionals, ",") != "false,alice" {
@@ -124,7 +127,7 @@ func TestParseFlagsBoolForms(t *testing.T) {
 }
 
 func TestParseFlagsErrors(t *testing.T) {
-	set, err := compileFlagSet(testCommandFlags{})
+	set, err := compileFlagSet[testCommandFlags]()
 	if err != nil {
 		t.Fatalf("compileFlagSet returned error: %v", err)
 	}
@@ -169,6 +172,58 @@ func TestParseFlagsErrors(t *testing.T) {
 	}
 }
 
+func TestCompileFlagSetRequiresExplicitFlagTags(t *testing.T) {
+	type missingFlagTag struct {
+		Verbose bool
+	}
+	type missingLongName struct {
+		Verbose bool `flag:",v"`
+	}
+	type emptyShortName struct {
+		Verbose bool `flag:"verbose,"`
+	}
+	type invalidLongName struct {
+		Verbose bool `flag:"verbose!"`
+	}
+	type invalidShortName struct {
+		Verbose bool `flag:"verbose,too-long"`
+	}
+	type duplicateLongNames struct {
+		Verbose bool `flag:"verbose"`
+		Debug   bool `flag:"verbose"`
+	}
+	type duplicateShortNames struct {
+		Verbose bool `flag:"verbose,v"`
+		Debug   bool `flag:"debug,v"`
+	}
+
+	tests := []struct {
+		name    string
+		compile func() (*flagSet, error)
+		wantErr string
+	}{
+		{name: "missing flag tag", compile: compileFlagSet[missingFlagTag], wantErr: `missing required tag "flag"`},
+		{name: "missing long name", compile: compileFlagSet[missingLongName], wantErr: "flag tag must include a long name"},
+		{name: "empty short name", compile: compileFlagSet[emptyShortName], wantErr: "flag tag short name cannot be empty"},
+		{name: "invalid long name", compile: compileFlagSet[invalidLongName], wantErr: `invalid flag name "verbose!"`},
+		{name: "invalid short name", compile: compileFlagSet[invalidShortName], wantErr: `short flag "too-long" must be a single character`},
+		{name: "duplicate long names", compile: compileFlagSet[duplicateLongNames], wantErr: `duplicate flag "verbose"`},
+		{name: "duplicate short names", compile: compileFlagSet[duplicateShortNames], wantErr: `duplicate flag "v"`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := tt.compile()
+			if err == nil {
+				t.Fatal("compileFlagSet returned nil error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("compileFlagSet error = %q, want substring %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestRunWithPopulatesComposedFlagsForGroupedCommand(t *testing.T) {
 	originalCommands := app.commands
 	originalGroups := app.groups
@@ -186,15 +241,15 @@ func TestRunWithPopulatesComposedFlagsForGroupedCommand(t *testing.T) {
 	var gotA string
 	var gotB string
 
-	GlobalFlags(testGlobalFlags{})
+	GlobalFlags[testGlobalFlags]()
 	Group("calc", "Calculator commands.", func(g GroupAdder) {
 		g.Command("add {a} {b}", "Add two numbers.", func(flags testCommandFlags, a string, b string) error {
 			gotFlags = flags
 			gotA = a
 			gotB = b
 			return nil
-		}, Flags(testCommandFlags{}))
-	}, Flags(testGroupFlags{}))
+		}, Flags[testCommandFlags]())
+	}, Flags[testGroupFlags]())
 
 	if err := RunWith([]string{"test", "calc", "add", "--verbose", "--base", "16", "--round", "a", "b"}); err != nil {
 		t.Fatalf("RunWith returned error: %v", err)
@@ -230,7 +285,7 @@ func TestGlobalFlagsCanBeIgnoredByHandler(t *testing.T) {
 		app.flags = originalFlags
 	}()
 
-	GlobalFlags(testGlobalFlags{})
+	GlobalFlags[testGlobalFlags]()
 	var gotName string
 	Command("greet {name}", "Greet someone.", func(name string) error {
 		gotName = name
@@ -250,10 +305,10 @@ func TestGroupFlagsMustEmbedGlobalFlags(t *testing.T) {
 	resetFlagsTestApp(t)
 
 	type badGroupFlags struct {
-		Base int
+		Base int `flag:"base"`
 	}
 
-	GlobalFlags(testGlobalFlags{})
+	GlobalFlags[testGlobalFlags]()
 
 	defer func() {
 		if recover() == nil {
@@ -261,17 +316,17 @@ func TestGroupFlagsMustEmbedGlobalFlags(t *testing.T) {
 		}
 	}()
 
-	Group("calc", "Calculator commands.", func(g GroupAdder) {}, Flags(badGroupFlags{}))
+	Group("calc", "Calculator commands.", func(g GroupAdder) {}, Flags[badGroupFlags]())
 }
 
 func TestRootCommandFlagsMustEmbedGlobalFlags(t *testing.T) {
 	resetFlagsTestApp(t)
 
 	type badCommandFlags struct {
-		Round bool
+		Round bool `flag:"round"`
 	}
 
-	GlobalFlags(testGlobalFlags{})
+	GlobalFlags[testGlobalFlags]()
 
 	defer func() {
 		if recover() == nil {
@@ -279,7 +334,7 @@ func TestRootCommandFlagsMustEmbedGlobalFlags(t *testing.T) {
 		}
 	}()
 
-	Command("round", "Round a number.", func(flags badCommandFlags) error { return nil }, Flags(badCommandFlags{}))
+	Command("round", "Round a number.", func(flags badCommandFlags) error { return nil }, Flags[badCommandFlags]())
 }
 
 func TestGroupedCommandFlagsMustEmbedGroupFlags(t *testing.T) {
@@ -287,10 +342,10 @@ func TestGroupedCommandFlagsMustEmbedGroupFlags(t *testing.T) {
 
 	type badCommandFlags struct {
 		testGlobalFlags
-		Round bool
+		Round bool `flag:"round"`
 	}
 
-	GlobalFlags(testGlobalFlags{})
+	GlobalFlags[testGlobalFlags]()
 
 	defer func() {
 		if recover() == nil {
@@ -299,18 +354,18 @@ func TestGroupedCommandFlagsMustEmbedGroupFlags(t *testing.T) {
 	}()
 
 	Group("calc", "Calculator commands.", func(g GroupAdder) {
-		g.Command("round", "Round a number.", func(flags badCommandFlags) error { return nil }, Flags(badCommandFlags{}))
-	}, Flags(testGroupFlags{}))
+		g.Command("round", "Round a number.", func(flags badCommandFlags) error { return nil }, Flags[badCommandFlags]())
+	}, Flags[testGroupFlags]())
 }
 
 func TestGroupedCommandFlagsMustEmbedGlobalFlagsWithoutGroupFlags(t *testing.T) {
 	resetFlagsTestApp(t)
 
 	type badCommandFlags struct {
-		Round bool
+		Round bool `flag:"round"`
 	}
 
-	GlobalFlags(testGlobalFlags{})
+	GlobalFlags[testGlobalFlags]()
 
 	defer func() {
 		if recover() == nil {
@@ -319,14 +374,14 @@ func TestGroupedCommandFlagsMustEmbedGlobalFlagsWithoutGroupFlags(t *testing.T) 
 	}()
 
 	Group("calc", "Calculator commands.", func(g GroupAdder) {
-		g.Command("round", "Round a number.", func(flags badCommandFlags) error { return nil }, Flags(badCommandFlags{}))
+		g.Command("round", "Round a number.", func(flags badCommandFlags) error { return nil }, Flags[badCommandFlags]())
 	})
 }
 
 func TestHandlerFlagsMustMatchEffectiveFlags(t *testing.T) {
 	resetFlagsTestApp(t)
 
-	GlobalFlags(testGlobalFlags{})
+	GlobalFlags[testGlobalFlags]()
 
 	defer func() {
 		if recover() == nil {
@@ -336,16 +391,16 @@ func TestHandlerFlagsMustMatchEffectiveFlags(t *testing.T) {
 
 	Group("calc", "Calculator commands.", func(g GroupAdder) {
 		g.Command("base", "Show the base.", func(flags testGlobalFlags) error { return nil })
-	}, Flags(testGroupFlags{}))
+	}, Flags[testGroupFlags]())
 }
 
 func TestFlagStorageKeepsOnlyLocalDeclarations(t *testing.T) {
 	resetFlagsTestApp(t)
 
-	GlobalFlags(testGlobalFlags{})
+	GlobalFlags[testGlobalFlags]()
 	Group("calc", "Calculator commands.", func(g GroupAdder) {
-		g.Command("add", "Add two numbers.", func(flags testCommandFlags) error { return nil }, Flags(testCommandFlags{}))
-	}, Flags(testGroupFlags{}))
+		g.Command("add", "Add two numbers.", func(flags testCommandFlags) error { return nil }, Flags[testCommandFlags]())
+	}, Flags[testGroupFlags]())
 
 	group := app.groups["calc"]
 	cmd := group.commands["add"]
@@ -370,13 +425,13 @@ func TestFlagStorageKeepsOnlyLocalDeclarations(t *testing.T) {
 func TestEffectiveFlagsResolveFallbacks(t *testing.T) {
 	resetFlagsTestApp(t)
 
-	GlobalFlags(testGlobalFlags{})
+	GlobalFlags[testGlobalFlags]()
 	Command("root-global", "Use global flags.", func(flags testGlobalFlags) error { return nil })
-	Command("root-local", "Use command flags.", func(flags testGroupFlags) error { return nil }, Flags(testGroupFlags{}))
+	Command("root-local", "Use command flags.", func(flags testGroupFlags) error { return nil }, Flags[testGroupFlags]())
 	Group("calc", "Calculator commands.", func(g GroupAdder) {
 		g.Command("group-local", "Use group flags.", func(flags testGroupFlags) error { return nil })
-		g.Command("command-local", "Use command flags.", func(flags testCommandFlags) error { return nil }, Flags(testCommandFlags{}))
-	}, Flags(testGroupFlags{}))
+		g.Command("command-local", "Use command flags.", func(flags testCommandFlags) error { return nil }, Flags[testCommandFlags]())
+	}, Flags[testGroupFlags]())
 	Group("plain", "Plain commands.", func(g GroupAdder) {
 		g.Command("global", "Use global flags.", func(flags testGlobalFlags) error { return nil })
 	})
@@ -401,7 +456,7 @@ func TestEffectiveFlagsResolveFallbacks(t *testing.T) {
 func TestGroupHelpShowsInheritedGlobalOptions(t *testing.T) {
 	resetFlagsTestApp(t)
 
-	GlobalFlags(testGlobalFlags{})
+	GlobalFlags[testGlobalFlags]()
 	Group("calc", "Calculator commands.", func(g GroupAdder) {
 		g.Command("add", "Add two numbers.", func(flags testGlobalFlags) error { return nil })
 	})
@@ -436,7 +491,7 @@ func TestCommandHelpShowsOptions(t *testing.T) {
 		app.out = originalOut
 	}()
 
-	GlobalFlags(testGlobalFlags{})
+	GlobalFlags[testGlobalFlags]()
 	Command("greet {name}", "Greet someone.", func(flags testGlobalFlags, name string) error { return nil })
 
 	if err := RunWith([]string{"myapp", "help", "greet"}); err != nil {
@@ -476,7 +531,7 @@ func TestGlobalHelpShowsOptions(t *testing.T) {
 		app.description = originalDescription
 	}()
 
-	GlobalFlags(testGlobalFlags{})
+	GlobalFlags[testGlobalFlags]()
 	Command("greet {name}", "Greet someone.", func(flags testGlobalFlags, name string) error { return nil })
 
 	got := globalHelp("myapp")

@@ -96,12 +96,12 @@ Flags are declared with structs. A handler can receive the applicable flags stru
 
 ```go
 type globalFlags struct {
-	Verbose bool   `short:"v" desc:"print verbose output"`
-	Profile string `default:"dev" desc:"profile name"`
+	Verbose bool   `flag:"verbose,v" desc:"print verbose output"`
+	Profile string `flag:"profile" default:"dev" desc:"profile name"`
 }
 
 func main() {
-	cli.GlobalFlags(globalFlags{})
+	cli.GlobalFlags[globalFlags]()
 
 	cli.Command("deploy {service}", "Deploy a service.", func(flags globalFlags, service string) error {
 		if flags.Verbose {
@@ -126,10 +126,11 @@ Supported flag field types are `bool`, `string`, and `int`.
 
 Supported tags:
 
-- `cli:"name"` sets the long option name. By default, field names are converted from `CamelCase` to `camel-case`.
-- `short:"x"` sets a one-character short option.
+- `flag:"long[,short]"` sets the required long option name and optional one-character short option.
 - `default:"value"` sets a default value.
 - `desc:"text"` adds help text.
+
+Every exported field in a registered flags struct must declare a `flag` tag.
 
 Boolean flags can be passed without a value, or with an explicit value:
 
@@ -167,25 +168,25 @@ Flags can be declared globally, on a group, or on a command. More specific flag 
 
 ```go
 type globalFlags struct {
-	Verbose bool
+	Verbose bool `flag:"verbose,v"`
 }
 
 type formatFlags struct {
 	globalFlags
-	Prefix string
+	Prefix string `flag:"prefix,p"`
 }
 
 type upperFlags struct {
 	formatFlags
-	Strong bool
+	Strong bool `flag:"strong,s"`
 }
 
 func main() {
-	cli.GlobalFlags(globalFlags{})
+	cli.GlobalFlags[globalFlags]()
 
 	cli.Group("format", "Format text.", func(g cli.GroupAdder) {
-		g.Command("upper {text}", "Uppercase text.", upperHandler, cli.Flags(upperFlags{}))
-	}, cli.Flags(formatFlags{}))
+		g.Command("upper {text}", "Uppercase text.", upperHandler, cli.Flags[upperFlags]())
+	}, cli.Flags[formatFlags]())
 
 	cli.Run()
 }

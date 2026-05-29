@@ -9,31 +9,31 @@ import (
 )
 
 type globalFlags struct {
-	Repeat int `default:"1"`
+	Repeat int `flag:"repeat,r" default:"1"`
 }
 
 type formatterFlags struct {
 	globalFlags
-	Prefix string
+	Prefix string `flag:"prefix,p"`
 }
 
 type upperFlags struct {
 	formatterFlags
-	Strong bool
+	Strong bool `flag:"strong,s"`
 }
 
 func main() {
-	cli.GlobalFlags(globalFlags{})
-	cli.Group("format", "Format a text string", formatGroup, cli.Flags(formatterFlags{}))
+	cli.GlobalFlags[globalFlags]()
+	cli.Group("format", "Format a text string", formatGroup, cli.Flags[formatterFlags]())
 	cli.Run()
 }
 
 func formatGroup(ga cli.GroupAdder) {
 	ga.Command("upper {text}", "Uppercase text", upperHandler,
-		cli.Flags(upperFlags{}),
+		cli.Flags[upperFlags](),
 	)
 	ga.Command("lower {text}", "Lowercase text", lowerHandler,
-		cli.Flags(upperFlags{}),
+		cli.Flags[upperFlags](),
 	)
 }
 

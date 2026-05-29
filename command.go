@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+
+	"github.com/nitekode/reflector"
 )
 
 type argumentKind uint8
@@ -158,20 +160,14 @@ func (cmd command) invoke(providedArgs []string, middleware ...MiddlewareFunc) e
 			return err
 		}
 
-		inputs, err := bindInputs(cmd.arguments, cmd.handlerType, cmd.handlerFlagsType, flagsValue, positionals)
+		inputs, err := bindInputs(cmd.arguments, cmd.handlerFlagsType, flagsValue, positionals)
 		if err != nil {
 			return err
 		}
 
-		var results []reflect.Value
-		if cmd.handlerType.IsVariadic() {
-			results = cmd.handler.CallSlice(inputs)
-		} else {
-			results = cmd.handler.Call(inputs)
-		}
-
-		if !results[0].IsNil() {
-			return results[0].Interface().(error)
+		_, err = reflector.Call(cmd.handler.Interface(), inputs)
+		if err != nil {
+			return err
 		}
 
 		return nil
@@ -188,29 +184,22 @@ func (cmd command) invoke(providedArgs []string, middleware ...MiddlewareFunc) e
 	return next()
 }
 
-func bindInputs(args []commandArgument, handlerType reflect.Type, handlerFlagsType reflect.Type, flagsValue reflect.Value, providedArgs []string) ([]reflect.Value, error) {
-	inputs := make([]reflect.Value, 0, len(args)+1)
-	argOffset := 0
+func bindInputs(args []commandArgument, handlerFlagsType reflect.Type, flagsValue any, providedArgs []string) ([]any, error) {
+	inputs := make([]any, 0, len(args)+1)
 	if handlerFlagsType != nil {
 		inputs = append(inputs, flagsValue)
-		argOffset = 1
 	}
 	providedIndex := 0
 
-	for i, arg := range args {
-		paramType := handlerType.In(i + argOffset)
-
+	for _, arg := range args {
 		if arg.Kind == repeatedArgument {
-			values := reflect.MakeSlice(paramType, len(providedArgs)-providedIndex, len(providedArgs)-providedIndex)
-			for j := providedIndex; j < len(providedArgs); j++ {
-				values.Index(j - providedIndex).SetString(providedArgs[j])
-			}
+			values := append([]string(nil), providedArgs[providedIndex:]...)
 			inputs = append(inputs, values)
 			providedIndex = len(providedArgs)
 			continue
 		}
 
-		value, nextIndex, err := bindSingleArgument(arg, paramType, providedArgs, providedIndex)
+		value, nextIndex, err := bindSingleArgument(arg, providedArgs, providedIndex)
 		if err != nil {
 			return nil, err
 		}
@@ -226,25 +215,24 @@ func bindInputs(args []commandArgument, handlerType reflect.Type, handlerFlagsTy
 	return inputs, nil
 }
 
-func bindSingleArgument(arg commandArgument, paramType reflect.Type, providedArgs []string, start int) (reflect.Value, int, error) {
+func bindSingleArgument(arg commandArgument, providedArgs []string, start int) (any, int, error) {
 	if start < len(providedArgs) {
 		raw := providedArgs[start]
 		if arg.Kind == optionalArgument {
-			value := reflect.New(paramType.Elem())
-			value.Elem().SetString(raw)
-			return value, start + 1, nil
+			value := raw
+			return &value, start + 1, nil
 		}
 
-		return reflect.ValueOf(raw), start + 1, nil
+		return raw, start + 1, nil
 	}
 
 	switch arg.Kind {
 	case defaultArgument:
-		return reflect.ValueOf(arg.Default), start, nil
+		return arg.Default, start, nil
 	case optionalArgument:
-		return reflect.Zero(paramType), start, nil
+		return (*string)(nil), start, nil
 	default:
-		return reflect.Value{}, start, fmt.Errorf("missing required argument %q", arg.Name)
+		return nil, start, fmt.Errorf("missing required argument %q", arg.Name)
 	}
 }
 
