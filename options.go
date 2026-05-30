@@ -45,6 +45,17 @@ func Hidden() hiddenOption { return hiddenOption{} }
 func (hiddenOption) applyCommand(cmd *command) { cmd.hidden = true }
 func (hiddenOption) applyGroup(group *group)   { group.hidden = true }
 
+// RawArgs
+
+type rawArgsOption struct{}
+
+// RawArgs marks a command as a pass-through: every argument after the command
+// name is forwarded to the handler verbatim, without parsing flags, options, or
+// the "--" terminator. The handler must be func(...string) error.
+func RawArgs() rawArgsOption { return rawArgsOption{} }
+
+func (rawArgsOption) applyCommand(cmd *command) { cmd.rawArgs = true }
+
 // ArgDesc
 
 type argDescOption struct {

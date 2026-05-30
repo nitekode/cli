@@ -35,6 +35,7 @@ type command struct {
 	handler          reflect.Value
 	handlerFlagsType reflect.Type
 	hidden           bool
+	rawArgs          bool
 	middleware       []MiddlewareFunc
 }
 
@@ -155,6 +156,14 @@ func compileCommandArgument(sigArg argument, paramType reflect.Type, variadic bo
 
 func (cmd command) invoke(providedArgs []string, middleware ...MiddlewareFunc) error {
 	next := func() error {
+		if cmd.rawArgs {
+			// Forward every argument verbatim to the variadic handler without
+			// parsing flags, options, or the "--" terminator.
+			inputs := []any{append([]string(nil), providedArgs...)}
+			_, err := reflector.Call(cmd.handler.Interface(), inputs)
+			return err
+		}
+
 		flagsValue, positionals, err := parseFlags(cmd.effectiveFlags(), cmd.arguments, providedArgs)
 		if err != nil {
 			return err
@@ -267,6 +276,15 @@ func validateCommandOptions(cmd command) error {
 		}
 		if arg.Name == "" {
 			return fmt.Errorf("argument description must refer to a named argument")
+		}
+	}
+
+	if cmd.rawArgs {
+		if cmd.handlerFlagsType != nil {
+			return fmt.Errorf("raw-args command %q cannot declare a flags struct", cmd.name)
+		}
+		if len(cmd.arguments) != 1 || cmd.arguments[0].Kind != repeatedArgument {
+			return fmt.Errorf("raw-args command %q handler must be func(...string) error", cmd.name)
 		}
 	}
 

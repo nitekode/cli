@@ -195,7 +195,7 @@ func commandHelp(executable string, cmd command) string {
 		Options:     make([]helpCommandSummary, 0),
 		Arguments:   make([]commandHelpArgument, 0, len(cmd.arguments)),
 	}
-	if flags != nil && len(flags.fields) > 0 {
+	if !cmd.rawArgs && flags != nil && len(flags.fields) > 0 {
 		data.Usage = commandUsageWithOptions(executable, cmd)
 		for _, field := range flags.fields {
 			desc := field.Description

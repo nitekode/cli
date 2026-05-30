@@ -347,3 +347,118 @@ func TestInvokeCommandWithScopedMiddlewareOrder(t *testing.T) {
 		t.Fatalf("calls = %#v, want %#v", calls, want)
 	}
 }
+
+func TestInvokeRawArgsCommand(t *testing.T) {
+	rawCmd := func(capture *[]string) command {
+		return command{
+			name:    "git",
+			rawArgs: true,
+			handler: reflect.ValueOf(func(args ...string) error {
+				*capture = args
+				return nil
+			}),
+			handlerType: reflect.TypeOf(func(...string) error { return nil }),
+			arguments:   []commandArgument{{Name: "args", Kind: repeatedArgument}},
+		}
+	}
+
+	cases := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{"forwards long flags", []string{"status", "--short"}, []string{"status", "--short"}},
+		{"forwards value flags verbatim", []string{"commit", "-m", "initial commit", "--amend"}, []string{"commit", "-m", "initial commit", "--amend"}},
+		{"forwards help instead of intercepting", []string{"--help"}, []string{"--help"}},
+		{"forwards double dash verbatim", []string{"checkout", "main", "--", "file.txt"}, []string{"checkout", "main", "--", "file.txt"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got []string
+			cmd := rawCmd(&got)
+			if err := cmd.invoke(tc.args); err != nil {
+				t.Fatalf("invoke returned error: %v", err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("handler args = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+
+	t.Run("no args yields empty slice", func(t *testing.T) {
+		got := []string{"sentinel"}
+		cmd := rawCmd(&got)
+		if err := cmd.invoke(nil); err != nil {
+			t.Fatalf("invoke returned error: %v", err)
+		}
+		if len(got) != 0 {
+			t.Fatalf("handler args = %#v, want empty", got)
+		}
+	})
+}
+
+func TestNewCommandRawArgsValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		sig     string
+		handler any
+		wantErr string
+	}{
+		{
+			name:    "accepts variadic handler",
+			sig:     "git {args}",
+			handler: func(...string) error { return nil },
+		},
+		{
+			name:    "rejects flags struct",
+			sig:     "git {args}",
+			handler: func(testGlobalFlags, ...string) error { return nil },
+			wantErr: "cannot declare a flags struct",
+		},
+		{
+			name:    "rejects non-variadic handler",
+			sig:     "git {name}",
+			handler: func(string) error { return nil },
+			wantErr: "must be func(...string) error",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := newCommand(tc.sig, "Run git.", tc.handler, RawArgs())
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("newCommand returned error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("newCommand error = %v, want containing %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestRawArgsHelpOmitsOptions(t *testing.T) {
+	set, err := compileFlagSet[testGlobalFlags]()
+	if err != nil {
+		t.Fatalf("compileFlagSet returned error: %v", err)
+	}
+
+	cmd := command{
+		name:        "git",
+		description: "Run git.",
+		rawArgs:     true,
+		flags:       set,
+		arguments:   []commandArgument{{Name: "args", Kind: repeatedArgument}},
+	}
+
+	out := commandHelp("app", cmd)
+	if strings.Contains(out, "Options:") {
+		t.Fatalf("raw-args command help should not list options:\n%s", out)
+	}
+	if strings.Contains(out, "[options]") {
+		t.Fatalf("raw-args command usage should not mention [options]:\n%s", out)
+	}
+}

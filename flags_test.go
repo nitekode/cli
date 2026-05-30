@@ -546,3 +546,26 @@ func TestGlobalHelpShowsOptions(t *testing.T) {
 		}
 	}
 }
+
+func TestRawArgsCommandCoexistsWithGlobalFlags(t *testing.T) {
+	resetFlagsTestApp(t)
+
+	// A global flag set is registered, but a raw-args command must ignore it
+	// and forward a flag verbatim instead of rejecting it as unknown.
+	GlobalFlags[testGlobalFlags]()
+
+	var got []string
+	Command("git {args}", "Run git.", func(args ...string) error {
+		got = args
+		return nil
+	}, RawArgs())
+
+	if err := RunWith([]string{"app", "git", "--verbose", "status", "--short"}); err != nil {
+		t.Fatalf("RunWith returned error: %v", err)
+	}
+
+	want := []string{"--verbose", "status", "--short"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("handler args = %#v, want %#v", got, want)
+	}
+}
