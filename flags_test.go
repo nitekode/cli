@@ -405,20 +405,20 @@ func TestFlagStorageKeepsOnlyLocalDeclarations(t *testing.T) {
 	group := app.groups["calc"]
 	cmd := group.commands["add"]
 
-	if app.flags.typ != reflect.TypeOf(testGlobalFlags{}) {
-		t.Fatalf("app.flags = %s, want testGlobalFlags", app.flags.typ)
+	if app.flags.info.Type != reflect.TypeOf(testGlobalFlags{}) {
+		t.Fatalf("app.flags = %s, want testGlobalFlags", app.flags.info.Type)
 	}
-	if group.flags.typ != reflect.TypeOf(testGroupFlags{}) {
-		t.Fatalf("group.flags = %s, want testGroupFlags", group.flags.typ)
+	if group.flags.info.Type != reflect.TypeOf(testGroupFlags{}) {
+		t.Fatalf("group.flags = %s, want testGroupFlags", group.flags.info.Type)
 	}
-	if cmd.flags.typ != reflect.TypeOf(testCommandFlags{}) {
-		t.Fatalf("cmd.flags = %s, want testCommandFlags", cmd.flags.typ)
+	if cmd.flags.info.Type != reflect.TypeOf(testCommandFlags{}) {
+		t.Fatalf("cmd.flags = %s, want testCommandFlags", cmd.flags.info.Type)
 	}
-	if group.effectiveFlags().typ != reflect.TypeOf(testGroupFlags{}) {
-		t.Fatalf("group.effectiveFlags = %s, want testGroupFlags", group.effectiveFlags().typ)
+	if group.effectiveFlags().info.Type != reflect.TypeOf(testGroupFlags{}) {
+		t.Fatalf("group.effectiveFlags = %s, want testGroupFlags", group.effectiveFlags().info.Type)
 	}
-	if cmd.effectiveFlags().typ != reflect.TypeOf(testCommandFlags{}) {
-		t.Fatalf("cmd.effectiveFlags = %s, want testCommandFlags", cmd.effectiveFlags().typ)
+	if cmd.effectiveFlags().info.Type != reflect.TypeOf(testCommandFlags{}) {
+		t.Fatalf("cmd.effectiveFlags = %s, want testCommandFlags", cmd.effectiveFlags().info.Type)
 	}
 }
 
@@ -436,19 +436,19 @@ func TestEffectiveFlagsResolveFallbacks(t *testing.T) {
 		g.Command("global", "Use global flags.", func(flags testGlobalFlags) error { return nil })
 	})
 
-	if got := app.commands["root-global"].effectiveFlags().typ; got != reflect.TypeOf(testGlobalFlags{}) {
+	if got := app.commands["root-global"].effectiveFlags().info.Type; got != reflect.TypeOf(testGlobalFlags{}) {
 		t.Fatalf("root global effective flags = %s, want testGlobalFlags", got)
 	}
-	if got := app.commands["root-local"].effectiveFlags().typ; got != reflect.TypeOf(testGroupFlags{}) {
+	if got := app.commands["root-local"].effectiveFlags().info.Type; got != reflect.TypeOf(testGroupFlags{}) {
 		t.Fatalf("root local effective flags = %s, want testGroupFlags", got)
 	}
-	if got := app.groups["calc"].commands["group-local"].effectiveFlags().typ; got != reflect.TypeOf(testGroupFlags{}) {
+	if got := app.groups["calc"].commands["group-local"].effectiveFlags().info.Type; got != reflect.TypeOf(testGroupFlags{}) {
 		t.Fatalf("group local effective flags = %s, want testGroupFlags", got)
 	}
-	if got := app.groups["calc"].commands["command-local"].effectiveFlags().typ; got != reflect.TypeOf(testCommandFlags{}) {
+	if got := app.groups["calc"].commands["command-local"].effectiveFlags().info.Type; got != reflect.TypeOf(testCommandFlags{}) {
 		t.Fatalf("command local effective flags = %s, want testCommandFlags", got)
 	}
-	if got := app.groups["plain"].commands["global"].effectiveFlags().typ; got != reflect.TypeOf(testGlobalFlags{}) {
+	if got := app.groups["plain"].commands["global"].effectiveFlags().info.Type; got != reflect.TypeOf(testGlobalFlags{}) {
 		t.Fatalf("group global fallback effective flags = %s, want testGlobalFlags", got)
 	}
 }

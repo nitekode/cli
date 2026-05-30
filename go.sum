@@ -2,3 +2,5 @@ github.com/nitekode/reflector v0.0.0-20260529183542-1efc015e4b57 h1:/4lW9MDUQDNR
 github.com/nitekode/reflector v0.0.0-20260529183542-1efc015e4b57/go.mod h1:QZQKZoX7mG4FAkjMs8EHjW2Ml4oszku87uJsEFOAASo=
 github.com/nitekode/reflector v0.0.0-20260529191204-3a8003433d3d h1:sR41MEcIfofuGs93iIfPGK5im45ERwRSTw1kFv2f89E=
 github.com/nitekode/reflector v0.0.0-20260529191204-3a8003433d3d/go.mod h1:QZQKZoX7mG4FAkjMs8EHjW2Ml4oszku87uJsEFOAASo=
+github.com/nitekode/reflector v0.0.0-20260530160503-a428113a572f h1:aIwltS7aCBh6UjyVPWNeTj0nMYePbsVgF4Yk8uh0nAs=
+github.com/nitekode/reflector v0.0.0-20260530160503-a428113a572f/go.mod h1:QZQKZoX7mG4FAkjMs8EHjW2Ml4oszku87uJsEFOAASo=

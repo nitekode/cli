@@ -31,8 +31,7 @@ type command struct {
 	arguments        []commandArgument
 	flags            *flagSet
 	group            *group
-	handlerType      reflect.Type
-	handler          reflect.Value
+	handler          any
 	handlerFlagsType reflect.Type
 	hidden           bool
 	hiddenWhen       func() bool
@@ -40,8 +39,9 @@ type command struct {
 	middleware       []MiddlewareFunc
 }
 
-var errorType = reflect.TypeFor[error]()
 var stringType = reflect.TypeFor[string]()
+var stringPtrType = reflect.TypeFor[*string]()
+var stringSliceType = reflect.TypeFor[[]string]()
 
 func newCommand(sig string, description string, handler any, opts ...CommandOption) (command, error) {
 	parsedSig, err := parseSignature(sig)
@@ -52,13 +52,7 @@ func newCommand(sig string, description string, handler any, opts ...CommandOpti
 		return command{}, errors.New("command description cannot be empty")
 	}
 
-	handlerValue := reflect.ValueOf(handler)
-	if !handlerValue.IsValid() {
-		return command{}, errors.New("handler must be a function")
-	}
-
-	handlerType := handlerValue.Type()
-	arguments, handlerFlagsType, err := compileCommandArguments(parsedSig, handlerType)
+	arguments, handlerFlagsType, err := compileCommandArguments(parsedSig, handler)
 	if err != nil {
 		return command{}, err
 	}
@@ -67,8 +61,7 @@ func newCommand(sig string, description string, handler any, opts ...CommandOpti
 		description:      description,
 		name:             parsedSig.Command,
 		arguments:        arguments,
-		handlerType:      handlerType,
-		handler:          handlerValue,
+		handler:          handler,
 		handlerFlagsType: handlerFlagsType,
 	}
 
@@ -82,35 +75,36 @@ func newCommand(sig string, description string, handler any, opts ...CommandOpti
 	return cmd, nil
 }
 
-func compileCommandArguments(sig signature, handlerType reflect.Type) ([]commandArgument, reflect.Type, error) {
-	if handlerType == nil || handlerType.Kind() != reflect.Func {
+func compileCommandArguments(sig signature, handler any) ([]commandArgument, reflect.Type, error) {
+	fn, err := reflector.InspectFunc(handler)
+	if err != nil {
 		return nil, nil, errors.New("handler must be a function")
 	}
 
-	if handlerType.NumOut() != 1 || !handlerType.Out(0).Implements(errorType) {
+	if len(fn.Returns) != 1 || !fn.ReturnsError {
 		return nil, nil, errors.New("handler must return a single error")
 	}
 
-	argOffset := 0
+	// A leading struct parameter is the command's flags; the rest are positionals.
+	params := fn.Params
 	var handlerFlagsType reflect.Type
-	if handlerType.NumIn() > 0 && handlerType.In(0).Kind() == reflect.Struct {
-		handlerFlagsType = handlerType.In(0)
-		argOffset = 1
+	if len(params) > 0 && params[0].Kind == reflect.Struct {
+		handlerFlagsType = params[0].Type
+		params = params[1:]
 	}
 
-	if handlerType.NumIn()-argOffset != len(sig.Args) {
+	if len(params) != len(sig.Args) {
 		return nil, nil, fmt.Errorf(
 			"handler for %q expects %d parameters, signature defines %d arguments",
 			sig.Command,
-			handlerType.NumIn()-argOffset,
+			len(params),
 			len(sig.Args),
 		)
 	}
 
 	arguments := make([]commandArgument, len(sig.Args))
 	for i, sigArg := range sig.Args {
-		paramIndex := i + argOffset
-		arg, err := compileCommandArgument(sigArg, handlerType.In(paramIndex), handlerType.IsVariadic() && paramIndex == handlerType.NumIn()-1)
+		arg, err := compileCommandArgument(sigArg, params[i].Type, params[i].IsVariadic)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -130,7 +124,7 @@ func compileCommandArgument(sigArg argument, paramType reflect.Type, variadic bo
 
 	switch {
 	case variadic:
-		if paramType.Kind() != reflect.Slice || paramType.Elem() != stringType {
+		if paramType != stringSliceType {
 			return commandArgument{}, fmt.Errorf("argument %q must map to a ...string parameter", sigArg.Name)
 		}
 		if sigArg.HasDefault {
@@ -143,7 +137,7 @@ func compileCommandArgument(sigArg argument, paramType reflect.Type, variadic bo
 		} else {
 			arg.Kind = requiredArgument
 		}
-	case paramType.Kind() == reflect.Pointer && paramType.Elem() == stringType:
+	case paramType == stringPtrType:
 		if sigArg.HasDefault {
 			return commandArgument{}, fmt.Errorf("argument %q cannot have a default because it maps to a *string parameter", sigArg.Name)
 		}
@@ -161,7 +155,7 @@ func (cmd command) invoke(providedArgs []string, middleware ...MiddlewareFunc) e
 			// Forward every argument verbatim to the variadic handler without
 			// parsing flags, options, or the "--" terminator.
 			inputs := []any{append([]string(nil), providedArgs...)}
-			_, err := reflector.Call(cmd.handler.Interface(), inputs)
+			_, err := reflector.Call(cmd.handler, inputs)
 			return err
 		}
 
@@ -175,7 +169,7 @@ func (cmd command) invoke(providedArgs []string, middleware ...MiddlewareFunc) e
 			return err
 		}
 
-		_, err = reflector.Call(cmd.handler.Interface(), inputs)
+		_, err = reflector.Call(cmd.handler, inputs)
 		if err != nil {
 			return err
 		}
@@ -263,15 +257,6 @@ func (cmd command) usage(executable string) string {
 
 func (cmd command) isHidden() bool {
 	return cmd.hidden || (cmd.hiddenWhen != nil && cmd.hiddenWhen())
-}
-
-func (cmd command) argumentNames() []string {
-	names := make([]string, 0, len(cmd.arguments))
-	for _, arg := range cmd.arguments {
-		names = append(names, arg.Name)
-	}
-
-	return names
 }
 
 func validateCommandOptions(cmd command) error {

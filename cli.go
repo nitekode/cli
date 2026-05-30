@@ -141,7 +141,7 @@ func Group(name string, description string, register func(GroupAdder), opts ...G
 }
 
 func Run() {
-	if len(os.Args) <= 1 && app.commands[""].handlerType == nil {
+	if len(os.Args) <= 1 && app.commands[""].handler == nil {
 		printUsageAndExit()
 	}
 

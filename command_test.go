@@ -71,17 +71,7 @@ func TestCompileCommandArguments(t *testing.T) {
 				t.Fatalf("parseSignature returned error: %v", err)
 			}
 
-			handlerValue := reflect.ValueOf(tt.handler)
-			if tt.wantErr == "handler must be a function" {
-				handlerValue = reflect.Value{}
-			}
-
-			var handlerType reflect.Type
-			if handlerValue.IsValid() {
-				handlerType = handlerValue.Type()
-			}
-
-			_, _, err = compileCommandArguments(sig, handlerType)
+			_, _, err = compileCommandArguments(sig, tt.handler)
 			if tt.wantErr == "" {
 				if err != nil {
 					t.Fatalf("compileCommandArguments returned error: %v", err)
@@ -110,14 +100,13 @@ func TestInvokeCommand(t *testing.T) {
 
 		cmd := command{
 			name: "greet",
-			handler: reflect.ValueOf(func(name string, title string, suffix *string, others ...string) error {
+			handler: func(name string, title string, suffix *string, others ...string) error {
 				gotName = name
 				gotTitle = title
 				gotSuffix = suffix
 				gotOthers = append([]string(nil), others...)
 				return nil
-			}),
-			handlerType: reflect.TypeOf(func(string, string, *string, ...string) error { return nil }),
+			},
 			arguments: []commandArgument{
 				{Name: "name", Kind: requiredArgument},
 				{Name: "title", Kind: defaultArgument, Default: "friend"},
@@ -160,9 +149,8 @@ func TestInvokeCommand(t *testing.T) {
 
 	t.Run("rejects missing required argument", func(t *testing.T) {
 		cmd := command{
-			name:        "greet",
-			handler:     reflect.ValueOf(func(string) error { return nil }),
-			handlerType: reflect.TypeOf(func(string) error { return nil }),
+			name:    "greet",
+			handler: func(string) error { return nil },
 			arguments: []commandArgument{
 				{Name: "name", Kind: requiredArgument},
 			},
@@ -176,9 +164,8 @@ func TestInvokeCommand(t *testing.T) {
 
 	t.Run("returns handler error", func(t *testing.T) {
 		cmd := command{
-			name:        "greet",
-			handler:     reflect.ValueOf(func(string) error { return errors.New("boom") }),
-			handlerType: reflect.TypeOf(func(string) error { return errors.New("boom") }),
+			name:    "greet",
+			handler: func(string) error { return errors.New("boom") },
 			arguments: []commandArgument{
 				{Name: "name", Kind: requiredArgument},
 			},
@@ -235,11 +222,10 @@ func TestInvokeCommandWithMiddleware(t *testing.T) {
 
 	cmd := command{
 		name: "greet",
-		handler: reflect.ValueOf(func() error {
+		handler: func() error {
 			calls = append(calls, "handler")
 			return nil
-		}),
-		handlerType: reflect.TypeOf(func() error { return nil }),
+		},
 	}
 
 	if err := cmd.invoke(nil, app.middleware...); err != nil {
@@ -266,11 +252,10 @@ func TestInvokeCommandMiddlewareCanAbort(t *testing.T) {
 
 	cmd := command{
 		name: "greet",
-		handler: reflect.ValueOf(func() error {
+		handler: func() error {
 			calledHandler = true
 			return nil
-		}),
-		handlerType: reflect.TypeOf(func() error { return nil }),
+		},
 	}
 
 	err := cmd.invoke(nil, app.middleware...)
@@ -318,12 +303,11 @@ func TestInvokeCommandWithScopedMiddlewareOrder(t *testing.T) {
 
 	cmd := command{
 		name: "add",
-		handler: reflect.ValueOf(func() error {
+		handler: func() error {
 			calls = append(calls, "handler")
 			return nil
-		}),
-		handlerType: reflect.TypeOf(func() error { return nil }),
-		middleware:  commandMiddleware,
+		},
+		middleware: commandMiddleware,
 	}
 
 	all := append([]MiddlewareFunc(nil), app.middleware...)
@@ -353,12 +337,11 @@ func TestInvokeRawArgsCommand(t *testing.T) {
 		return command{
 			name:    "git",
 			rawArgs: true,
-			handler: reflect.ValueOf(func(args ...string) error {
+			handler: func(args ...string) error {
 				*capture = args
 				return nil
-			}),
-			handlerType: reflect.TypeOf(func(...string) error { return nil }),
-			arguments:   []commandArgument{{Name: "args", Kind: repeatedArgument}},
+			},
+			arguments: []commandArgument{{Name: "args", Kind: repeatedArgument}},
 		}
 	}
 

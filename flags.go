@@ -21,7 +21,7 @@ type flagField struct {
 }
 
 type flagSet struct {
-	typ    reflect.Type
+	info   reflector.StructInfo
 	fields []flagField
 	fill   func(map[string]string) (any, error)
 }
@@ -67,11 +67,6 @@ func Flags[T any]() flagsOption {
 
 func compileFlagSet[T any]() (*flagSet, error) {
 	var zero T
-	typ := reflect.TypeFor[T]()
-	if typ.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("flags must be a struct")
-	}
-
 	si, err := reflector.InspectStruct(zero)
 	if err != nil {
 		return nil, err
@@ -82,8 +77,7 @@ func compileFlagSet[T any]() (*flagSet, error) {
 
 	fields := make([]flagField, 0, len(si.Fields))
 	for _, field := range si.Fields {
-		flagType := field.Type
-		switch flagType.Kind() {
+		switch field.Kind {
 		case reflect.Bool, reflect.String, reflect.Int:
 		default:
 			return nil, fmt.Errorf("flag field %q must be bool, string, or int", field.Name)
@@ -105,7 +99,7 @@ func compileFlagSet[T any]() (*flagSet, error) {
 		defaultValue := field.Tags["default"]
 
 		count := field.Tags["count"] == "true"
-		if count && flagType.Kind() != reflect.Int {
+		if count && field.Kind != reflect.Int {
 			return nil, fmt.Errorf("flag field %q: count flag must be int", field.Name)
 		}
 
@@ -114,7 +108,7 @@ func compileFlagSet[T any]() (*flagSet, error) {
 			Short:       short,
 			Description: field.Tags["desc"],
 			Default:     defaultValue,
-			Bool:        flagType.Kind() == reflect.Bool,
+			Bool:        field.Kind == reflect.Bool,
 			Count:       count,
 		})
 	}
@@ -136,7 +130,7 @@ func compileFlagSet[T any]() (*flagSet, error) {
 	}
 
 	return &flagSet{
-		typ:    typ,
+		info:   si,
 		fields: fields,
 		fill: func(input map[string]string) (any, error) {
 			value, err := reflector.NewStruct[T](reflector.WithDefaultTag("default"))
@@ -203,18 +197,16 @@ func validateFlagName(name string) error {
 	return nil
 }
 
-func hasEmbeddedFlagSet(typ reflect.Type, parent reflect.Type) bool {
-	si, err := reflector.InspectStruct(reflect.Zero(typ).Interface())
-	if err != nil {
-		return false
-	}
-
-	return si.Embeds(parent)
+func (set *flagSet) embeds(parent *flagSet) bool {
+	// Embeds matches against the embedded struct's reflect.Type, so pass
+	// parent.info.Type — handing it parent.info (the StructInfo) compiles but
+	// always reports false.
+	return set.info.Embeds(parent.info.Type)
 }
 
 func validateGroupFlags(group *group) error {
-	if group.flags != nil && app.flags != nil && !hasEmbeddedFlagSet(group.flags.typ, app.flags.typ) {
-		return fmt.Errorf("group %q flags must embed %s", group.name, app.flags.typ.Name())
+	if group.flags != nil && app.flags != nil && !group.flags.embeds(app.flags) {
+		return fmt.Errorf("group %q flags must embed %s", group.name, app.flags.info.Name)
 	}
 
 	return nil
@@ -222,15 +214,15 @@ func validateGroupFlags(group *group) error {
 
 func validateCommandFlags(cmd *command) error {
 	parent := cmd.parentFlags()
-	if cmd.flags != nil && parent != nil && !hasEmbeddedFlagSet(cmd.flags.typ, parent.typ) {
-		return fmt.Errorf("command %q flags must embed %s", cmd.name, parent.typ.Name())
+	if cmd.flags != nil && parent != nil && !cmd.flags.embeds(parent) {
+		return fmt.Errorf("command %q flags must embed %s", cmd.name, parent.info.Name)
 	}
 	effective := cmd.effectiveFlags()
 	switch {
 	case effective == nil && cmd.handlerFlagsType != nil:
 		return fmt.Errorf("command %q handler declares flags but no flags are registered", cmd.name)
-	case effective != nil && cmd.handlerFlagsType != nil && cmd.handlerFlagsType != effective.typ:
-		return fmt.Errorf("command %q handler must accept %s flags", cmd.name, effective.typ.Name())
+	case effective != nil && cmd.handlerFlagsType != nil && cmd.handlerFlagsType != effective.info.Type:
+		return fmt.Errorf("command %q handler must accept %s flags", cmd.name, effective.info.Name)
 	}
 
 	return nil
