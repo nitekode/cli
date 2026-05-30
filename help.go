@@ -355,7 +355,7 @@ func commandUsageWithOptions(executable string, cmd command) string {
 func commandNames() []string {
 	names := make([]string, 0, len(app.commands))
 	for name := range app.commands {
-		if name == "" || app.commands[name].hidden {
+		if name == "" || app.commands[name].isHidden() {
 			continue
 		}
 
@@ -369,7 +369,7 @@ func commandNames() []string {
 func groupNames() []string {
 	names := make([]string, 0, len(app.groups))
 	for name := range app.groups {
-		if app.groups[name].hidden {
+		if app.groups[name].isHidden() {
 			continue
 		}
 		names = append(names, name)
@@ -387,7 +387,7 @@ func groupCommandNames(groupName string) []string {
 
 	names := make([]string, 0, len(group.commands))
 	for name := range group.commands {
-		if group.commands[name].hidden {
+		if group.commands[name].isHidden() {
 			continue
 		}
 		names = append(names, name)

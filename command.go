@@ -35,6 +35,7 @@ type command struct {
 	handler          reflect.Value
 	handlerFlagsType reflect.Type
 	hidden           bool
+	hiddenWhen       func() bool
 	rawArgs          bool
 	middleware       []MiddlewareFunc
 }
@@ -258,6 +259,10 @@ func (cmd command) usage(executable string) string {
 	}
 
 	return strings.Join(parts, " ")
+}
+
+func (cmd command) isHidden() bool {
+	return cmd.hidden || (cmd.hiddenWhen != nil && cmd.hiddenWhen())
 }
 
 func (cmd command) argumentNames() []string {

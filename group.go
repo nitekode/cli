@@ -6,7 +6,12 @@ type group struct {
 	commands    map[string]command
 	flags       *flagSet
 	hidden      bool
+	hiddenWhen  func() bool
 	middleware  []MiddlewareFunc
+}
+
+func (g *group) isHidden() bool {
+	return g.hidden || (g.hiddenWhen != nil && g.hiddenWhen())
 }
 
 type groupAdder struct {

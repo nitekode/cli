@@ -288,7 +288,7 @@ func versionString() string {
 
 func hasNamedCommands() bool {
 	for name, cmd := range app.commands {
-		if name != "" && !cmd.hidden {
+		if name != "" && !cmd.isHidden() {
 			return true
 		}
 	}

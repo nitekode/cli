@@ -290,6 +290,105 @@ func TestGlobalHelpOmitsHiddenCommandAndGroup(t *testing.T) {
 	}
 }
 
+func TestGlobalHelpOmitsCommandAndGroupHiddenWhenTrue(t *testing.T) {
+	resetFlagsTestApp(t)
+
+	alwaysHidden := func() bool { return true }
+	Command("visible", "Visible command.", func() error { return nil })
+	Command("conceal", "Concealed command.", func() error { return nil }, HiddenWhen(alwaysHidden))
+	Group("vault", "Vault commands.", func(g GroupAdder) {
+		g.Command("add", "Add an item.", func() error { return nil })
+	}, HiddenWhen(alwaysHidden))
+
+	got := globalHelp("myapp")
+
+	if strings.Contains(got, "Concealed command.") {
+		t.Fatalf("globalHelp should omit predicate-hidden command:\n%s", got)
+	}
+	if strings.Contains(got, "Vault commands.") || strings.Contains(got, "vault add") {
+		t.Fatalf("globalHelp should omit predicate-hidden group:\n%s", got)
+	}
+	if !strings.Contains(got, "Visible command.") {
+		t.Fatalf("globalHelp should include visible command:\n%s", got)
+	}
+}
+
+func TestGlobalHelpShowsCommandAndGroupHiddenWhenFalse(t *testing.T) {
+	resetFlagsTestApp(t)
+
+	neverHidden := func() bool { return false }
+	Command("conceal", "Concealed command.", func() error { return nil }, HiddenWhen(neverHidden))
+	Group("vault", "Vault commands.", func(g GroupAdder) {
+		g.Command("add", "Add an item.", func() error { return nil })
+	}, HiddenWhen(neverHidden))
+
+	got := globalHelp("myapp")
+
+	if !strings.Contains(got, "Concealed command.") {
+		t.Fatalf("globalHelp should include command when predicate is false:\n%s", got)
+	}
+	if !strings.Contains(got, "Vault commands.") {
+		t.Fatalf("globalHelp should include group when predicate is false:\n%s", got)
+	}
+}
+
+func TestHiddenWhenIsEvaluatedEachRender(t *testing.T) {
+	resetFlagsTestApp(t)
+
+	hide := false
+	Command("conceal", "Concealed command.", func() error { return nil }, HiddenWhen(func() bool { return hide }))
+
+	if got := globalHelp("myapp"); !strings.Contains(got, "Concealed command.") {
+		t.Fatalf("command should be visible while predicate is false:\n%s", got)
+	}
+
+	hide = true
+	if got := globalHelp("myapp"); strings.Contains(got, "Concealed command.") {
+		t.Fatalf("command should be hidden after predicate flips to true:\n%s", got)
+	}
+}
+
+func TestHiddenWhenCommandStillExecutable(t *testing.T) {
+	resetFlagsTestApp(t)
+
+	ran := false
+	Command("conceal", "Concealed command.", func() error {
+		ran = true
+		return nil
+	}, HiddenWhen(func() bool { return true }))
+
+	if err := RunWith([]string{"app", "conceal"}); err != nil {
+		t.Fatalf("RunWith returned error: %v", err)
+	}
+	if !ran {
+		t.Fatalf("predicate-hidden command should still be executable")
+	}
+}
+
+func TestHiddenWhenWithStaticHiddenStaysHidden(t *testing.T) {
+	resetFlagsTestApp(t)
+
+	Command("conceal", "Concealed command.", func() error { return nil }, Hidden(), HiddenWhen(func() bool { return false }))
+
+	if got := globalHelp("myapp"); strings.Contains(got, "Concealed command.") {
+		t.Fatalf("static Hidden() should keep command hidden regardless of predicate:\n%s", got)
+	}
+}
+
+func TestHiddenWhenNilPredicatePanics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatalf("expected panic for nil predicate")
+		}
+		if msg, ok := r.(string); !ok || !strings.Contains(msg, "HiddenWhen predicate cannot be nil") {
+			t.Fatalf("unexpected panic: %v", r)
+		}
+	}()
+
+	HiddenWhen(nil)
+}
+
 func TestPrintUsageAndExitWritesGlobalHelp(t *testing.T) {
 	originalOut := app.out
 	originalCommands := app.commands

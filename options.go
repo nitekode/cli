@@ -45,6 +45,26 @@ func Hidden() hiddenOption { return hiddenOption{} }
 func (hiddenOption) applyCommand(cmd *command) { cmd.hidden = true }
 func (hiddenOption) applyGroup(group *group)   { group.hidden = true }
 
+// HiddenWhen
+
+type hiddenWhenOption struct {
+	predicate func() bool
+}
+
+// HiddenWhen hides a command or group from help output when predicate returns
+// true. The predicate is evaluated each time help is rendered, so visibility
+// can track runtime state. The command remains executable regardless. The
+// predicate should be cheap and side-effect-free, as it runs on every render.
+func HiddenWhen(predicate func() bool) hiddenWhenOption {
+	if predicate == nil {
+		panic("cli: HiddenWhen predicate cannot be nil")
+	}
+	return hiddenWhenOption{predicate: predicate}
+}
+
+func (o hiddenWhenOption) applyCommand(cmd *command) { cmd.hiddenWhen = o.predicate }
+func (o hiddenWhenOption) applyGroup(group *group)   { group.hiddenWhen = o.predicate }
+
 // RawArgs
 
 type rawArgsOption struct{}
