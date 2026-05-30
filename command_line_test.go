@@ -12,9 +12,11 @@ func TestParseCommandLine(t *testing.T) {
 		name            string
 		args            []string
 		booleanFlags    []string
+		countFlags      []string
 		wantPositionals []string
 		wantFlags       map[string]bool
 		wantOptions     map[string][]string
+		wantCounts      map[string]int
 	}{
 		{
 			name:            "positionals only",
@@ -97,11 +99,48 @@ func TestParseCommandLine(t *testing.T) {
 			wantFlags:       map[string]bool{"verbose": true},
 			wantOptions:     map[string][]string{},
 		},
+		{
+			name:            "count short repeated cluster",
+			args:            []string{"-vvv", "file.txt"},
+			countFlags:      []string{"v"},
+			wantPositionals: []string{"file.txt"},
+			wantFlags:       map[string]bool{},
+			wantOptions:     map[string][]string{},
+			wantCounts:      map[string]int{"v": 3},
+		},
+		{
+			name:            "count mixed with boolean in cluster",
+			args:            []string{"-vvf"},
+			booleanFlags:    []string{"f"},
+			countFlags:      []string{"v"},
+			wantPositionals: nil,
+			wantFlags:       map[string]bool{"f": true},
+			wantOptions:     map[string][]string{},
+			wantCounts:      map[string]int{"v": 2},
+		},
+		{
+			name:            "count long repeated",
+			args:            []string{"--verbose", "--verbose"},
+			countFlags:      []string{"verbose"},
+			wantPositionals: nil,
+			wantFlags:       map[string]bool{},
+			wantOptions:     map[string][]string{},
+			wantCounts:      map[string]int{"verbose": 2},
+		},
+		{
+			name:            "count separate shorts",
+			args:            []string{"-v", "-v"},
+			countFlags:      []string{"v"},
+			wantPositionals: nil,
+			wantFlags:       map[string]bool{},
+			wantOptions:     map[string][]string{},
+			wantCounts:      map[string]int{"v": 2},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseCommandLine(tt.args, tt.booleanFlags)
+			got, err := parseCommandLine(tt.args, tt.booleanFlags, tt.countFlags)
 			if err != nil {
 				t.Fatalf("parseCommandLine returned error: %v", err)
 			}
@@ -115,6 +154,9 @@ func TestParseCommandLine(t *testing.T) {
 			if !reflect.DeepEqual(got.options, tt.wantOptions) {
 				t.Fatalf("options = %#v, want %#v", got.options, tt.wantOptions)
 			}
+			if tt.wantCounts != nil && !reflect.DeepEqual(got.counts, tt.wantCounts) {
+				t.Fatalf("counts = %#v, want %#v", got.counts, tt.wantCounts)
+			}
 		})
 	}
 }
@@ -124,6 +166,7 @@ func TestParseCommandLineErrors(t *testing.T) {
 		name         string
 		args         []string
 		booleanFlags []string
+		countFlags   []string
 		wantErr      string
 	}{
 		{
@@ -131,6 +174,12 @@ func TestParseCommandLineErrors(t *testing.T) {
 			args:         []string{"--verbose=maybe"},
 			booleanFlags: []string{"verbose"},
 			wantErr:      `flag "verbose" expects true or false`,
+		},
+		{
+			name:       "count flag rejects explicit value",
+			args:       []string{"--verbose=3"},
+			countFlags: []string{"verbose"},
+			wantErr:    `count flag "verbose" does not take a value`,
 		},
 		{
 			name:         "explicit empty boolean value",
@@ -162,7 +211,7 @@ func TestParseCommandLineErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := parseCommandLine(tt.args, tt.booleanFlags)
+			_, err := parseCommandLine(tt.args, tt.booleanFlags, tt.countFlags)
 			if err == nil {
 				t.Fatal("parseCommandLine returned nil error")
 			}
@@ -254,6 +303,43 @@ func TestCommandLineValidate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCommandLineValidateCounts(t *testing.T) {
+	t.Run("normalizes count short to long", func(t *testing.T) {
+		flags := &flagSet{
+			fields: []flagField{{Name: "verbose", Short: "v", Count: true}},
+		}
+		parsed := commandLine{
+			flags:   map[string]bool{},
+			options: map[string][]string{},
+			counts:  map[string]int{"v": 2},
+		}
+
+		if err := parsed.validate(flags, nil); err != nil {
+			t.Fatalf("validate returned error: %v", err)
+		}
+		want := map[string]int{"verbose": 2}
+		if !reflect.DeepEqual(parsed.counts, want) {
+			t.Fatalf("counts = %#v, want %#v", parsed.counts, want)
+		}
+	})
+
+	t.Run("rejects non-count flag used as count", func(t *testing.T) {
+		flags := &flagSet{
+			fields: []flagField{{Name: "verbose", Short: "v", Bool: true}},
+		}
+		parsed := commandLine{
+			flags:   map[string]bool{},
+			options: map[string][]string{},
+			counts:  map[string]int{"verbose": 1},
+		}
+
+		err := parsed.validate(flags, nil)
+		if err == nil || !strings.Contains(err.Error(), `flag "verbose" is not a count flag`) {
+			t.Fatalf("validate error = %v, want \"is not a count flag\"", err)
+		}
+	})
 }
 
 func TestCommandLineValidateErrors(t *testing.T) {

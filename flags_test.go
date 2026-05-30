@@ -547,6 +547,75 @@ func TestGlobalHelpShowsOptions(t *testing.T) {
 	}
 }
 
+func TestParseFlagsCount(t *testing.T) {
+	type countFlags struct {
+		Verbose int `flag:"verbose,v" count:"true" desc:"increase verbosity"`
+		Level   int `flag:"level,l" count:"true" default:"1" desc:"log level"`
+	}
+
+	set, err := compileFlagSet[countFlags]()
+	if err != nil {
+		t.Fatalf("compileFlagSet returned error: %v", err)
+	}
+
+	t.Run("repetition sets count, default preserved when absent", func(t *testing.T) {
+		value, _, err := parseFlags(set, nil, []string{"-vvv"})
+		if err != nil {
+			t.Fatalf("parseFlags returned error: %v", err)
+		}
+		flags := value.(countFlags)
+		if flags.Verbose != 3 {
+			t.Fatalf("Verbose = %d, want 3", flags.Verbose)
+		}
+		if flags.Level != 1 {
+			t.Fatalf("Level = %d, want 1 (default preserved)", flags.Level)
+		}
+	})
+
+	t.Run("absent count keeps zero, default keeps default", func(t *testing.T) {
+		value, _, err := parseFlags(set, nil, nil)
+		if err != nil {
+			t.Fatalf("parseFlags returned error: %v", err)
+		}
+		flags := value.(countFlags)
+		if flags.Verbose != 0 {
+			t.Fatalf("Verbose = %d, want 0", flags.Verbose)
+		}
+		if flags.Level != 1 {
+			t.Fatalf("Level = %d, want 1 (default)", flags.Level)
+		}
+	})
+
+	t.Run("short and long accumulate together", func(t *testing.T) {
+		value, _, err := parseFlags(set, nil, []string{"-v", "--verbose"})
+		if err != nil {
+			t.Fatalf("parseFlags returned error: %v", err)
+		}
+		flags := value.(countFlags)
+		if flags.Verbose != 2 {
+			t.Fatalf("Verbose = %d, want 2", flags.Verbose)
+		}
+	})
+
+	t.Run("explicit value is rejected", func(t *testing.T) {
+		_, _, err := parseFlags(set, nil, []string{"--verbose=3"})
+		if err == nil || !strings.Contains(err.Error(), `count flag "verbose" does not take a value`) {
+			t.Fatalf("parseFlags error = %v, want rejection of explicit value", err)
+		}
+	})
+}
+
+func TestCompileFlagSetCountRequiresInt(t *testing.T) {
+	type badCount struct {
+		Bad bool `flag:"bad" count:"true"`
+	}
+
+	_, err := compileFlagSet[badCount]()
+	if err == nil || !strings.Contains(err.Error(), "count flag must be int") {
+		t.Fatalf("compileFlagSet error = %v, want \"count flag must be int\"", err)
+	}
+}
+
 func TestRawArgsCommandCoexistsWithGlobalFlags(t *testing.T) {
 	resetFlagsTestApp(t)
 

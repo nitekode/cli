@@ -327,7 +327,7 @@ func commandSectionWidths(commands []helpCommandSummary, groups []helpGroupSecti
 
 func formatOptionLabel(field flagField) string {
 	label := "--" + field.Name
-	if field.Bool {
+	if field.Bool || field.Count {
 		return label
 	}
 

@@ -13,16 +13,28 @@ type commandLine struct {
 
 	// options carry a value
 	options map[string][]string
+
+	// counts accumulate repetition (e.g. -vvv)
+	counts map[string]int
 }
 
-func parseCommandLine(args []string, flags []string) (parsed commandLine, err error) {
+func parseCommandLine(args []string, boolFlags, countFlags []string) (parsed commandLine, err error) {
 	parsed.flags = make(map[string]bool)
 	parsed.options = make(map[string][]string)
+	parsed.counts = make(map[string]int)
 
-	// Create a lookup table for the flags
-	flagSet := make(map[string]struct{}, len(flags))
-	for _, name := range flags {
-		flagSet[name] = struct{}{}
+	// Create lookup tables for no-value flags. Boolean and count flags both take
+	// no value; countSet distinguishes the two, noValueSet covers either.
+	countSet := make(map[string]struct{}, len(countFlags))
+	for _, name := range countFlags {
+		countSet[name] = struct{}{}
+	}
+	noValueSet := make(map[string]struct{}, len(boolFlags)+len(countFlags))
+	for _, name := range boolFlags {
+		noValueSet[name] = struct{}{}
+	}
+	for _, name := range countFlags {
+		noValueSet[name] = struct{}{}
 	}
 
 	for i := 0; i < len(args); i++ {
@@ -53,19 +65,23 @@ func parseCommandLine(args []string, flags []string) (parsed commandLine, err er
 
 		// Special handling for short concatenated flags
 		if isShort && len(arg) > 1 {
-			allBoolean := true
+			allNoValue := true
 			for j := 0; j < len(arg); j++ {
 				name := string(arg[j])
-				if _, isFlag := flagSet[name]; !isFlag {
-					allBoolean = false
+				if _, isFlag := noValueSet[name]; !isFlag {
+					allNoValue = false
 					break
 				}
 			}
 
-			if allBoolean {
+			if allNoValue {
 				for j := 0; j < len(arg); j++ {
 					name := string(arg[j])
-					parsed.flags[name] = true
+					if _, isCount := countSet[name]; isCount {
+						parsed.counts[name]++
+					} else {
+						parsed.flags[name] = true
+					}
 				}
 				continue
 			}
@@ -84,8 +100,17 @@ func parseCommandLine(args []string, flags []string) (parsed commandLine, err er
 			hasValue = false
 		}
 
+		// Count flags take no value; each occurrence increments the tally.
+		if _, isCount := countSet[name]; isCount {
+			if hasValue {
+				return parsed, fmt.Errorf("count flag %q does not take a value", name)
+			}
+			parsed.counts[name]++
+			continue
+		}
+
 		// Check if the argument is a flag (boolean)
-		if _, isFlag := flagSet[name]; isFlag {
+		if _, isFlag := noValueSet[name]; isFlag {
 			parsedBool, ok := parseBool(value, hasValue)
 			if !ok {
 				return parsed, fmt.Errorf("flag %q expects true or false", name)
@@ -141,6 +166,14 @@ func (parsed *commandLine) normalize(flags *flagSet) {
 			parsed.options[normalizedName] = append(parsed.options[normalizedName], values...)
 		}
 	}
+
+	for name, value := range parsed.counts {
+		normalizedName, found := shortToLong[name]
+		if found {
+			delete(parsed.counts, name)
+			parsed.counts[normalizedName] += value
+		}
+	}
 }
 
 func (parsed *commandLine) validate(flags *flagSet, expectedPositionals []commandArgument) error {
@@ -171,6 +204,16 @@ func (parsed *commandLine) validate(flags *flagSet, expectedPositionals []comman
 		}
 		if flag.Bool {
 			return fmt.Errorf("flag %q used as value option", name)
+		}
+	}
+
+	for name := range parsed.counts {
+		flag, found := flagLookup[name]
+		if !found {
+			return fmt.Errorf("unknown flag %q", name)
+		}
+		if !flag.Count {
+			return fmt.Errorf("flag %q is not a count flag", name)
 		}
 	}
 

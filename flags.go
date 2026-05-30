@@ -17,6 +17,7 @@ type flagField struct {
 	Description string
 	Default     string
 	Bool        bool
+	Count       bool
 }
 
 type flagSet struct {
@@ -103,12 +104,18 @@ func compileFlagSet[T any]() (*flagSet, error) {
 
 		defaultValue := field.Tags["default"]
 
+		count := field.Tags["count"] == "true"
+		if count && flagType.Kind() != reflect.Int {
+			return nil, fmt.Errorf("flag field %q: count flag must be int", field.Name)
+		}
+
 		fields = append(fields, flagField{
 			Name:        name,
 			Short:       short,
 			Description: field.Tags["desc"],
 			Default:     defaultValue,
 			Bool:        flagType.Kind() == reflect.Bool,
+			Count:       count,
 		})
 	}
 
@@ -255,8 +262,9 @@ func (cmd command) effectiveFlags() *flagSet {
 
 func parseFlags(set *flagSet, expectedPositionals []commandArgument, args []string) (any, []string, error) {
 	booleanFlags := make([]string, 0)
+	countFlags := make([]string, 0)
 	if set == nil {
-		parsed, err := parseCommandLine(args, booleanFlags)
+		parsed, err := parseCommandLine(args, booleanFlags, nil)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -267,6 +275,13 @@ func parseFlags(set *flagSet, expectedPositionals []commandArgument, args []stri
 	}
 
 	for _, field := range set.fields {
+		if field.Count {
+			countFlags = append(countFlags, field.Name)
+			if field.Short != "" {
+				countFlags = append(countFlags, field.Short)
+			}
+			continue
+		}
 		if !field.Bool {
 			continue
 		}
@@ -276,7 +291,7 @@ func parseFlags(set *flagSet, expectedPositionals []commandArgument, args []stri
 		}
 	}
 
-	parsed, err := parseCommandLine(args, booleanFlags)
+	parsed, err := parseCommandLine(args, booleanFlags, countFlags)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -287,6 +302,12 @@ func parseFlags(set *flagSet, expectedPositionals []commandArgument, args []stri
 	input := make(map[string]string, len(parsed.options)+len(parsed.flags))
 
 	for _, field := range set.fields {
+		if field.Count {
+			if n := parsed.counts[field.Name]; n > 0 {
+				input[field.Name] = strconv.Itoa(n)
+			}
+			continue
+		}
 		if field.Bool {
 			rawValue, found := parsed.flags[field.Name]
 			if !found {
