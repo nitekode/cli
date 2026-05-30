@@ -65,6 +65,12 @@ type helpCommandsSectionData struct {
 	Groups            []helpGroupSection
 }
 
+type helpLabelSectionData struct {
+	Title    string
+	Width    int
+	Commands []helpCommandSummary
+}
+
 var helpTemplateFuncs = template.FuncMap{
 	"padRight": func(s string, width int) string {
 		if len(s) >= width {
@@ -95,6 +101,9 @@ var optionsTemplateSource string
 //go:embed templates/help_commands.tmpl
 var commandsTemplateSource string
 
+//go:embed templates/help_label.tmpl
+var labelTemplateSource string
+
 var usageTemplate = template.Must(template.New("usage").Parse(usageTemplateSource))
 
 var argumentsTemplate = template.Must(template.New("arguments").Parse(argumentsTemplateSource))
@@ -102,6 +111,8 @@ var argumentsTemplate = template.Must(template.New("arguments").Parse(argumentsT
 var optionsTemplate = template.Must(template.New("options").Funcs(helpTemplateFuncs).Parse(optionsTemplateSource))
 
 var commandsTemplate = template.Must(template.New("commands").Funcs(helpTemplateFuncs).Parse(commandsTemplateSource))
+
+var labelTemplate = template.Must(template.New("label").Funcs(helpTemplateFuncs).Parse(labelTemplateSource))
 
 func printUsageAndExit() {
 	fmt.Fprint(app.out, globalHelp(filepath.Base(os.Args[0])))
@@ -144,7 +155,11 @@ func globalHelp(executable string) string {
 		}
 	}
 
+	labeled := labeledCommandNames()
 	for _, name := range commandNames() {
+		if _, ok := labeled[name]; ok {
+			continue
+		}
 		data.Commands = append(data.Commands, helpCommandSummary{
 			Label:       name,
 			Description: commandDescription(name),
@@ -184,7 +199,44 @@ func globalHelp(executable string) string {
 		}))
 	}
 
+	for _, lbl := range app.labels {
+		commands := make([]helpCommandSummary, 0, len(lbl.commands))
+		width := 0
+		for _, name := range lbl.commands {
+			cmd := app.commands[name]
+			if cmd.isHidden() {
+				continue
+			}
+			if len(name) > width {
+				width = len(name)
+			}
+			commands = append(commands, helpCommandSummary{
+				Label:       name,
+				Description: cmd.description,
+			})
+		}
+		if len(commands) == 0 {
+			continue
+		}
+		sections = append(sections, renderHelpTemplate(labelTemplate, helpLabelSectionData{
+			Title:    lbl.title + ":",
+			Width:    width,
+			Commands: commands,
+		}))
+	}
+
 	return joinHelpSections(sections)
+}
+
+func labeledCommandNames() map[string]struct{} {
+	names := make(map[string]struct{})
+	for _, lbl := range app.labels {
+		for _, name := range lbl.commands {
+			names[name] = struct{}{}
+		}
+	}
+
+	return names
 }
 
 func commandHelp(executable string, cmd command) string {

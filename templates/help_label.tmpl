@@ -1,0 +1,4 @@
+{{.Title}}
+{{range .Commands}}{{if .Description}}  {{padRight .Label $.Width}}  {{.Description}}
+{{else}}  {{.Label}}
+{{end}}{{end}}

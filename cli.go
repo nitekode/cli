@@ -26,6 +26,7 @@ var app = struct {
 	commands   map[string]command
 	flags      *flagSet
 	groups     map[string]*group
+	labels     []*label
 	middleware []MiddlewareFunc
 }{
 	name:       filepath.Base(os.Args[0]),
